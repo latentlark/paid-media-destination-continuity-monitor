@@ -9,6 +9,8 @@ import { createCharger } from './billing.js';
 import { followWithBrowser } from './browser.js';
 import {
     CHARGE_DESTINATION,
+    CHARGE_LINK,
+    CHARGE_LINK_BROWSER,
     CHARGE_SHOPIFY,
     HARD_LIMITS,
     RULE_VERSION,
@@ -88,6 +90,20 @@ export function assertNoForbiddenFeatures(input) {
         if (proxy.useApifyProxy === true) throw new FatalInputError('proxies are not supported');
         if (Array.isArray(proxy.proxyUrls) && proxy.proxyUrls.length > 0) throw new FatalInputError('proxies are not supported');
     }
+}
+
+
+export function landingChargeEvent(affiliate, configuredEvents) {
+    const configured = configuredEvents instanceof Set
+        ? configuredEvents
+        : new Set(configuredEvents || []);
+    if (affiliate?.renderMode === 'browser' && configured.has(CHARGE_LINK_BROWSER)) {
+        return CHARGE_LINK_BROWSER;
+    }
+    if (affiliate?.affiliateMode && configured.has(CHARGE_LINK)) {
+        return CHARGE_LINK;
+    }
+    return CHARGE_DESTINATION;
 }
 
 export function collectWatchlist(input) {
@@ -333,6 +349,8 @@ export async function runMonitor(input, deps) {
     const affiliateLinks = {};
     let destinationsCharged = 0;
     let shopifyCharged = 0;
+    let linksCharged = 0;
+    let linksBrowserCharged = 0;
     const hash = affiliate.inputHashValue;
     const affilKey = affiliateSnapshotKey(hash);
     const previousAffil = deps.affiliateStore ? await deps.affiliateStore.get(affilKey) : null;
@@ -501,6 +519,7 @@ export async function runMonitor(input, deps) {
             changeAlerts: [],
             inputHash: hash,
             promise: 'Detect broken affiliate redirects and unexpected tracking changes.',
+            chargeLandingEvent: null,
             chargedDestination: false,
             chargedShopify: false,
             chargeDestinationReason: 'not_billable',
@@ -516,10 +535,16 @@ export async function runMonitor(input, deps) {
     for (const pending of rows) {
         const { rowBase, classified, shopifyClassified, group } = pending;
         if (classified.billable) {
-            const charge = await charger.charge(CHARGE_DESTINATION, group.key);
+            const eventName = landingChargeEvent(affiliate, deps.configuredChargeEvents);
+            const charge = await charger.charge(eventName, group.key);
+            rowBase.chargeLandingEvent = eventName;
             rowBase.chargedDestination = charge.charged;
             rowBase.chargeDestinationReason = charge.reason;
-            if (charge.charged) destinationsCharged += 1;
+            if (charge.charged) {
+                if (eventName === CHARGE_LINK_BROWSER) linksBrowserCharged += 1;
+                else if (eventName === CHARGE_LINK) linksCharged += 1;
+                else destinationsCharged += 1;
+            }
         }
         if (shopifyClassified?.billable) {
             const charge = await charger.charge(CHARGE_SHOPIFY, group.shopify.productKey);
@@ -582,6 +607,8 @@ export async function runMonitor(input, deps) {
         shopifyProducts: normalized.shopifyProductCount,
         destinationsCharged,
         shopifyCharged,
+        linksCharged,
+        linksBrowserCharged,
         confirmedFailureCount: confirmedFailures.length,
         impactedAdIds: [...new Set(confirmedFailures.flatMap((r) => r.adIds))],
         requestsUsed: budget.used,
@@ -599,6 +626,8 @@ export async function runMonitor(input, deps) {
         chargeEvents: {
             [CHARGE_DESTINATION]: CHARGE_DESTINATION,
             [CHARGE_SHOPIFY]: CHARGE_SHOPIFY,
+            [CHARGE_LINK]: CHARGE_LINK,
+            [CHARGE_LINK_BROWSER]: CHARGE_LINK_BROWSER,
         },
     };
 

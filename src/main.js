@@ -1,6 +1,6 @@
 import { Actor } from 'apify';
 import { resolvePricingMode } from './billing_config.js';
-import { CHARGE_DESTINATION, CHARGE_SHOPIFY, RULE_VERSION, SNAPSHOT_PREFIX } from './constants.js';
+import { CHARGE_DESTINATION, CHARGE_LINK, CHARGE_LINK_BROWSER, CHARGE_SHOPIFY, RULE_VERSION, SNAPSHOT_PREFIX } from './constants.js';
 import { FatalInputError } from './errors.js';
 import { runMonitor } from './monitor.js';
 import { createRealResolver, createRealTransport } from './net.js';
@@ -32,6 +32,7 @@ try {
         transport: createRealTransport(),
         store,
         affiliateStore,
+        configuredChargeEvents: pricingMode.configuredEvents || new Set(),
         chargeFn: async ({ eventName, count }) => {
             if (pricingMode.mode !== 'ppe') {
                 return { notOnPlatform: true, chargedCount: 0, eventChargeLimitReached: false };
@@ -91,7 +92,7 @@ try {
             destinationsCharged: 0,
             shopifyCharged: 0,
             ruleVersion: RULE_VERSION,
-            chargeEvents: [CHARGE_DESTINATION, CHARGE_SHOPIFY],
+            chargeEvents: [CHARGE_DESTINATION, CHARGE_SHOPIFY, CHARGE_LINK, CHARGE_LINK_BROWSER],
             proxyUsed: false,
             notificationsSent: false,
             finishedAt: new Date().toISOString(),

@@ -26,6 +26,8 @@ export const CHARGE_LINK = 'link-checked';
 export const CHARGE_LINK_BROWSER = 'link-checked-browser';
 export const CHARGE_DESTINATION_USD = 0.004;
 export const CHARGE_SHOPIFY_USD = 0.005;
+export const CHARGE_LINK_USD = 0.0015;
+export const CHARGE_LINK_BROWSER_USD = 0.005;
 export const SOURCE_LANDING = 'http_landing';
 export const SOURCE_SHOPIFY = 'shopify_ajax_product';
 

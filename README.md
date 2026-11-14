@@ -1,4 +1,4 @@
-# Paid Media Destination Continuity Monitor
+# Paid Media Destination Continuity Monitor: Affiliate Link QA
 
 Check whether the **landing pages your ads point to** still work, and, for Shopify products, whether the **advertised variant is still buyable**. Optionally inspect **affiliate redirect chains** and tracking parameters. Paste destination URLs (and optional Shopify variant IDs), click Start, and get one clear row per destination with the impacted ad IDs fanned out. *Sold out* and *broken* stay separate from *blocked*, *timeout* and *unknown*.
 
@@ -15,7 +15,7 @@ Check whether the **landing pages your ads point to** still work, and, for Shopi
 
 ## Quick start (first run in under a minute)
 1. Click **Try for free** (or **Start** in Console). The form is prefilled with:
-   - `https://example.com/` — expects domain `example.com` and the text `Example Domain`
+   - `https://example.com/` expects domain `example.com` and the text `Example Domain`
    - Shopify's public **Dawn theme demo** product *Thelma sandal*, variant `39576998346841` (`Black / 35`), for the optional stock check
 2. Click **Start**. The demo run takes a few seconds, writes **2 rows**, and lists about **$0.013** in events (2 × $0.004 destinations + 1 × $0.005 Shopify) plus a few tenths of a cent of platform usage.
 3. Replace the destinations with your own ad URLs. Label each row with your `adId`. Cap: **25 ads, 15 unique URLs, 3 Shopify products, 80 requests** per run (timeout cap 180 seconds; the Store example stays at 90).
@@ -24,7 +24,7 @@ Check whether the **landing pages your ads point to** still work, and, for Shopi
 ## What you can do with it
 - **Landing health:** HTTP status, redirect chain (each hop revalidated), final URL, expected-domain match.
 - **Assertion checks:** require offer text (`Add to cart`, a promo string) or forbid sold-out copy.
-- **Shopify buyability:** optional `/products/{handle}.js` check for a selected variant — same read-only source as our Shopify monitor.
+- **Shopify buyability:** optional `/products/{handle}.js` check for a selected variant, using the same read-only source as our Shopify monitor.
 - **Two-strike confirmed failures:** a destination becomes `confirmedFailure` only after **two consecutive** failure observations. Timeouts, 403s and other unknowns never count as a strike and never overwrite the last good baseline.
 - **Impacted-ad fan-out:** several ads can share one URL; one check updates every linked `adId`.
 
@@ -59,10 +59,10 @@ Real output from a private platform run on 9 November 2026 (fields shortened):
 
 | adIds | destinationStatus | httpStatus | shopifyAvailability | chargedDestination | chargedShopify |
 |---|---|---:|---|---|---|
-| demo-example | ok | 200 | — | true | false |
+| demo-example | ok | 200 |  | true | false |
 | demo-dawn | ok | 200 | out_of_stock | true | true |
 
-The Dawn *Black / 35* variant was sold out on that demo store when the run was taken; other variants of the same product can still be in stock. Live demos can change. The first OOS observation is `oos_pending_confirmation` — a second consecutive OOS on a scheduled task sets `confirmedShopifyFailure`.
+The Dawn *Black / 35* variant was sold out on that demo store when the run was taken; other variants of the same product can still be in stock. Live demos can change. The first OOS observation is `oos_pending_confirmation`. A second consecutive OOS on a scheduled task sets `confirmedShopifyFailure`.
 
 
 ## Affiliate redirect and parameter QA
@@ -95,31 +95,19 @@ Use this when you need to check tracking links as well as landing pages.
 }
 ```
 
-## Proposed pricing (not applied on the live Actor)
-The public Actor still charges **$0.004** per resolved destination and **$0.005** per Shopify check, with no start fee. A later publish of this upgrade would add per-link events after Mohamed approves prices. Draft event keys:
-
-| Event | When | Draft price (to be confirmed from measured compute) |
-|---|---|---|
-| `destination-resolved` | Unchanged, classic landing classification | $0.004 (current) |
-| `shopify-product-check` | Unchanged | $0.005 (current) |
-| `link-checked` | HTTP-mode link / redirect + parameter check | about $0.001 to $0.002 (see test report) |
-| `link-checked-browser` | Full browser render of one link | higher than HTTP (see test report) |
-| Actor start | Optional, not charged today | to be confirmed |
-
-Blocked, timeout, unknown and invalid-input rows stay free. Owner test runs on a private dev Actor are not monetized.
-
 ## Pricing (pay per event)
-| Event | Price |
-|---|---|
-| Destination resolved (`destination-resolved`) | **$0.004** per unique URL |
-| Shopify product check (`shopify-product-check`) | **$0.005** per successful product classification |
-| Actor start | none |
+| Event | Price | When it is charged |
+|---|---|---|
+| Destination resolved (`destination-resolved`) | **$0.004** per unique URL | Classic ads-only landing classification (`ok`, `broken`, `assertion_failed`, or `redirect_domain_mismatch`) |
+| Shopify product check (`shopify-product-check`) | **$0.005** per successful product classification | Ajax product document classifies the selected variant |
+| HTTP link check (`link-checked`) | **$0.0015** per unique URL | Affiliate / tracking-link HTTP checks that reach a full classification |
+| Browser link check (`link-checked-browser`) | **$0.005** per unique URL | The same classification after a full browser render |
+| Actor start | none | Not charged |
 
-- **Destination charged** when the URL is fully classified as `ok`, `broken`, `assertion_failed` or `redirect_domain_mismatch`. All linked ad IDs are included in that one charge.
-- **Destination free:** `blocked`, `unknown`, `timeout`, rate-limited, or request-budget exhaustion.
-- **Shopify charged** when the Ajax product document classifies the selected variant (`in_stock`, `out_of_stock`, `variant_not_found`).
+A unique URL is never charged for both `destination-resolved` and a link-check event. `link-checked` and `link-checked-browser` are new paid events. If Apify places them on a notice period, they start on the platform effective date; until then a billable landing still uses `destination-resolved` at $0.004. Blocked, timeout, unknown, rate-limited, invalid-input and request-budget rows stay free.
+
 - **Shopify free:** blocked, unknown, missing `available` field, or product 404.
-- **Cheap to run:** our 2-destination + 1-Shopify demo used about **$0.0006** of Apify platform usage in ~6 seconds at 256 MB. Example: 10 destinations daily for 30 days ≈ 300 × $0.004 = **$1.20** in destination events (Shopify extras only when you enable them).
+- **Cheap to run:** the Store prefill (2 destinations + 1 Shopify check) lists about **$0.013** in events plus a few tenths of a cent of platform usage, and finishes in well under 2 minutes at 256 MB. Example: 10 classic destinations daily for 30 days ≈ 300 × $0.004 = **$1.20** in destination events.
 
 ## Two-strike semantics
 | Observation | Effect on strikes |

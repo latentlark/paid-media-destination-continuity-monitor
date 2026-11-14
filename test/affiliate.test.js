@@ -143,3 +143,18 @@ describe('failure paths stay as classified rows', () => {
         );
     });
 });
+
+describe('landingChargeEvent', () => {
+    it('uses link-checked for affiliate HTTP when that event is configured', async () => {
+        const { landingChargeEvent } = await import('../src/monitor.js');
+        const { CHARGE_DESTINATION, CHARGE_LINK, CHARGE_LINK_BROWSER } = await import('../src/constants.js');
+        const affiliate = { affiliateMode: true, renderMode: 'http' };
+        assert.equal(landingChargeEvent(affiliate, new Set()), CHARGE_DESTINATION);
+        assert.equal(landingChargeEvent(affiliate, new Set([CHARGE_LINK])), CHARGE_LINK);
+        assert.equal(
+            landingChargeEvent({ affiliateMode: true, renderMode: 'browser' }, new Set([CHARGE_LINK, CHARGE_LINK_BROWSER])),
+            CHARGE_LINK_BROWSER,
+        );
+        assert.equal(landingChargeEvent({ affiliateMode: false, renderMode: 'http' }, new Set([CHARGE_LINK])), CHARGE_DESTINATION);
+    });
+});
