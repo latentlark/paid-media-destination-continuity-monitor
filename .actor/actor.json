@@ -2,7 +2,7 @@
   "actorSpecification": 1,
   "name": "paid-media-destination-continuity-monitor",
   "title": "Paid Media Destination Continuity Monitor: Affiliate Link QA",
-  "description": "Detect broken affiliate redirects and unexpected tracking changes. Check ad landings for broken links, wrong final domains and missing offer text, plus optional Shopify variant buyability. Two-strike confirmed failures. Does not claim commission attribution. $0.004 per destination, $0.005 per Shopify check, $0.0015 per HTTP link check and $0.005 per browser link check (new events follow Apify's pricing schedule). Blocked and unknown are free.",
+  "description": "Detect broken affiliate redirects and unexpected tracking changes. Check ad landings, tracking parameters and optional Shopify buyability. Two-strike failures. Does not claim commission attribution. $0.004/destination, $0.005/Shopify, $0.0015/HTTP link, $0.005/browser link. Blocked and unknown free.",
   "version": "0.1",
   "buildTag": "latest",
   "defaultMemoryMbytes": 256,
