@@ -3,6 +3,7 @@
 FROM apify/actor-node-playwright-chrome:22
 
 ENV NODE_OPTIONS=--max-old-space-size=192
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 COPY --chown=myuser:myuser package.json package-lock.json ./
 

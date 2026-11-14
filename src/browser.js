@@ -3,15 +3,39 @@ import { extractClientRedirect, paramsFromUrl } from './params.js';
 import { assertPublicHostname } from './ssrf.js';
 
 export async function loadPlaywright() {
-    try {
-        return await import('playwright');
-    } catch {
+    const tried = [];
+    const specs = ['playwright', 'playwright-core'];
+    for (const spec of specs) {
         try {
-            return await import('playwright-core');
-        } catch {
-            return null;
+            const mod = await import(spec);
+            if (mod?.chromium || mod?.default?.chromium) return mod.chromium ? mod : mod.default;
+            tried.push(`${spec}: no chromium export`);
+        } catch (error) {
+            tried.push(`${spec}: ${error?.message || error}`);
         }
     }
+    try {
+        const { createRequire } = await import('node:module');
+        const { pathToFileURL } = await import('node:url');
+        const require = createRequire(import.meta.url);
+        const paths = [
+            require.resolve('playwright'),
+            '/home/myuser/node_modules/playwright/index.js',
+            '/usr/src/app/node_modules/playwright/index.js',
+        ];
+        for (const file of paths) {
+            try {
+                const mod = await import(pathToFileURL(file).href);
+                if (mod?.chromium || mod?.default?.chromium) return mod.chromium ? mod : mod.default;
+            } catch (error) {
+                tried.push(`${file}: ${error?.message || error}`);
+            }
+        }
+    } catch (error) {
+        tried.push(`resolve: ${error?.message || error}`);
+    }
+    console.warn(`Playwright not available (${tried.join('; ')})`);
+    return null;
 }
 
 export async function isBrowserAvailable() {
