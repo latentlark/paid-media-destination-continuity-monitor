@@ -113,7 +113,7 @@
             "title": "Required tracking parameters",
             "type": "array",
             "description": "Parameters to inspect. A missing parameter is not an automatic failure unless severity is error.",
-            "editor": "schemaBased",
+            "editor": "json",
             "items": {
               "type": "object",
               "required": [
@@ -261,7 +261,7 @@
             "title": "Required tracking parameters",
             "type": "array",
             "description": "Parameters to inspect. A missing parameter is not an automatic failure unless severity is error.",
-            "editor": "schemaBased",
+            "editor": "json",
             "items": {
               "type": "object",
               "required": [
@@ -342,7 +342,7 @@
       "title": "Global required tracking parameters",
       "type": "array",
       "description": "Inspect these query parameters across every link. Default severity is warning, so a missing or consumed parameter is not an automatic failure. Networks may drop or rename parameters; add aliases or per-hop rules for that.",
-      "editor": "schemaBased",
+      "editor": "json",
       "items": {
         "type": "object",
         "required": [
@@ -400,7 +400,7 @@
         "perHop": {
           "title": "Per-hop rules",
           "type": "array",
-          "editor": "schemaBased",
+          "editor": "json",
           "items": {
             "type": "object",
             "required": [
