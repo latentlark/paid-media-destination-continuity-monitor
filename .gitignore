@@ -1,0 +1,12 @@
+node_modules/
+storage/
+.env
+.env.*
+*.log
+npm-debug.log*
+.DS_Store
+tmp/
+agent-tools/
+uploads/
+.secrets/
+*.pem

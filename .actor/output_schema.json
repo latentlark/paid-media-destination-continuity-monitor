@@ -1,0 +1,12 @@
+{
+  "actorOutputSchemaVersion": 1,
+  "title": "Destination continuity summary",
+  "description": "Run summary including confirmed failures and impacted ad IDs.",
+  "properties": {
+    "summary": {
+      "type": "string",
+      "title": "Summary",
+      "template": "{{OUTPUT}}"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "actorSpecification": 1,
+  "name": "paid-media-destination-continuity-monitor",
+  "title": "Paid Media Destination Continuity Monitor",
+  "description": "Check ad landing pages for broken links, wrong redirects and missing offer text, and optionally confirm Shopify variant buyability. Two-strike confirmed failures with impacted-ad fan-out. $0.004 per destination + $0.005 per Shopify check; blocked and unknown are free.",
+  "version": "0.1",
+  "buildTag": "latest",
+  "defaultMemoryMbytes": 256,
+  "minMemoryMbytes": 256,
+  "maxMemoryMbytes": 256,
+  "environmentVariables": {
+    "NODE_OPTIONS": "--max-old-space-size=192"
+  },
+  "dockerfile": "../Dockerfile",
+  "readme": "../README.md",
+  "input": "./input_schema.json",
+  "output": "./output_schema.json",
+  "storages": {
+    "dataset": "./dataset_schema.json"
+  }
+}

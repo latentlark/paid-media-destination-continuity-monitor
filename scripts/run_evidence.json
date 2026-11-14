@@ -1,0 +1,156 @@
+{
+  "actId": "R2ftwgP3uopc0uxUy",
+  "runId": "BUyUPfQ1DwTbw00rG",
+  "run": {
+    "status": "SUCCEEDED",
+    "exitCode": 0,
+    "usageTotalUsd": 0.0005610307015064691,
+    "chargedEventCounts": {
+      "destination-resolved": 2,
+      "shopify-product-check": 1
+    },
+    "accountedChargedEventCounts": {
+      "destination-resolved": 0,
+      "shopify-product-check": 0
+    },
+    "startedAt": "2026-11-09T20:17:39.706Z",
+    "finishedAt": "2026-11-09T20:17:45.895Z"
+  },
+  "usage": {
+    "ACTOR_COMPUTE_UNITS": 0.0004184027777777778,
+    "DATASET_READS": 0,
+    "DATASET_WRITES": 2,
+    "KEY_VALUE_STORE_READS": 3,
+    "KEY_VALUE_STORE_WRITES": 9,
+    "KEY_VALUE_STORE_LISTS": 0,
+    "REQUEST_QUEUE_READS": 0,
+    "REQUEST_QUEUE_WRITES": 0,
+    "DATA_TRANSFER_INTERNAL_GBYTES": 3.3278949558734894e-05,
+    "DATA_TRANSFER_EXTERNAL_GBYTES": 3.430992364883423e-06,
+    "PROXY_RESIDENTIAL_TRANSFER_GBYTES": 0,
+    "PROXY_SERPS": 0,
+    "PROXY_UNBLOCKER_UNITS": 0
+  },
+  "stats": {
+    "inputBodyLen": 649,
+    "migrationCount": 0,
+    "rebootCount": 0,
+    "restartCount": 0,
+    "durationMillis": 6025,
+    "resurrectCount": 0,
+    "runTimeSecs": 6.025,
+    "metamorph": 0,
+    "computeUnits": 0.0004184027777777778,
+    "memAvgBytes": 42430797.29666604,
+    "memMaxBytes": 52150272,
+    "memCurrentBytes": 0,
+    "cpuAvgUsage": 12.002468727359206,
+    "cpuMaxUsage": 54.74494028912633,
+    "cpuCurrentUsage": 0,
+    "netRxBytes": 432101,
+    "netTxBytes": 17086
+  },
+  "isPublic": false,
+  "rows": [
+    {
+      "destinationUrl": "https://example.com/",
+      "finalUrl": "https://example.com/",
+      "destinationStatus": "ok",
+      "previousDestinationStatus": null,
+      "event": "ok",
+      "reason": null,
+      "expectedDomain": "example.com",
+      "expectedDomainOk": true,
+      "requiredTextOk": true,
+      "forbiddenTextOk": true,
+      "contentHash": "25ddf2c883e0d195",
+      "httpStatus": 200,
+      "consecutiveFailures": 0,
+      "confirmedFailure": false,
+      "confirmedOk": false,
+      "impactedTransition": "became_ok",
+      "baselinePreserved": false,
+      "adIds": [
+        "demo-example"
+      ],
+      "ads": [
+        {
+          "adId": "demo-example",
+          "platform": "other",
+          "label": "landing-ok"
+        }
+      ],
+      "shopifyAvailability": null,
+      "previousShopifyAvailability": null,
+      "shopifyEvent": null,
+      "shopifyHttpStatus": null,
+      "shopifyVariantTitle": null,
+      "shopifyPriceMinor": null,
+      "confirmedShopifyFailure": false,
+      "shopifyTransition": null,
+      "shopifyProductUrl": null,
+      "shopifyVariantId": null,
+      "sourceLanding": "http_landing",
+      "sourceShopify": null,
+      "ruleVersion": "0.1.0",
+      "stateScope": "user:O0efFje0TiIrbrkiN:scope:day0-probe",
+      "checkedAt": "2026-11-09T20:17:42.793Z",
+      "requestsUsed": 2,
+      "requestLimit": 20,
+      "chargedDestination": true,
+      "chargedShopify": false,
+      "chargeDestinationReason": "charged",
+      "chargeShopifyReason": "not_billable"
+    },
+    {
+      "destinationUrl": "https://theme-dawn-demo.myshopify.com/products/thelma-sandal",
+      "finalUrl": "https://theme-dawn-demo.myshopify.com/products/thelma-sandal",
+      "destinationStatus": "ok",
+      "previousDestinationStatus": null,
+      "event": "ok",
+      "reason": null,
+      "expectedDomain": "theme-dawn-demo.myshopify.com",
+      "expectedDomainOk": true,
+      "requiredTextOk": true,
+      "forbiddenTextOk": true,
+      "contentHash": "c93aa55c5bcccb3c",
+      "httpStatus": 200,
+      "consecutiveFailures": 0,
+      "confirmedFailure": false,
+      "confirmedOk": false,
+      "impactedTransition": "became_ok",
+      "baselinePreserved": false,
+      "adIds": [
+        "demo-dawn"
+      ],
+      "ads": [
+        {
+          "adId": "demo-dawn",
+          "platform": "other",
+          "label": "dawn-demo-variant"
+        }
+      ],
+      "shopifyAvailability": "out_of_stock",
+      "previousShopifyAvailability": null,
+      "shopifyEvent": "out_of_stock",
+      "shopifyHttpStatus": 200,
+      "shopifyVariantTitle": "Black / 35",
+      "shopifyPriceMinor": 38500,
+      "confirmedShopifyFailure": false,
+      "shopifyTransition": "oos_pending_confirmation",
+      "shopifyProductUrl": "https://theme-dawn-demo.myshopify.com/products/thelma-sandal",
+      "shopifyVariantId": "39576998346841",
+      "sourceLanding": "http_landing",
+      "sourceShopify": "shopify_ajax_product",
+      "ruleVersion": "0.1.0",
+      "stateScope": "user:O0efFje0TiIrbrkiN:scope:day0-probe",
+      "checkedAt": "2026-11-09T20:17:44.904Z",
+      "requestsUsed": 5,
+      "requestLimit": 20,
+      "chargedDestination": true,
+      "chargedShopify": true,
+      "chargeDestinationReason": "charged",
+      "chargeShopifyReason": "charged"
+    }
+  ]
+}

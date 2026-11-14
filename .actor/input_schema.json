@@ -1,0 +1,186 @@
+{
+  "title": "Ad destination watchlist",
+  "description": "Destinations to check for landing health and optional Shopify buyability. Hard caps: 25 ads, 10 unique URLs, 40 requests, 3 Shopify products, 90 seconds. Caps cannot be raised.",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "ads": {
+      "title": "Ads and destinations",
+      "type": "array",
+      "description": "Each item is one ad destination URL. Multiple ads may share a URL; results fan out every linked adId. The prefill checks example.com plus Shopify's public Dawn demo product (Thelma sandal / Black 35).",
+      "minItems": 1,
+      "maxItems": 25,
+      "editor": "schemaBased",
+      "prefill": [
+        {
+          "adId": "demo-example",
+          "platform": "other",
+          "destinationUrl": "https://example.com/",
+          "expectedDomain": "example.com",
+          "requiredText": [
+            "Example Domain"
+          ],
+          "label": "landing-ok"
+        },
+        {
+          "adId": "demo-dawn",
+          "platform": "other",
+          "destinationUrl": "https://theme-dawn-demo.myshopify.com/products/thelma-sandal",
+          "expectedDomain": "theme-dawn-demo.myshopify.com",
+          "shopifyProductUrl": "https://theme-dawn-demo.myshopify.com/products/thelma-sandal",
+          "variantId": "39576998346841",
+          "label": "dawn-demo-variant"
+        }
+      ],
+      "items": {
+        "type": "object",
+        "required": [
+          "destinationUrl"
+        ],
+        "properties": {
+          "adId": {
+            "title": "Ad ID",
+            "type": "string",
+            "description": "Your ad or campaign identifier. Not fetched remotely.",
+            "editor": "textfield",
+            "maxLength": 120,
+            "example": "ad-123"
+          },
+          "platform": {
+            "title": "Platform",
+            "type": "string",
+            "description": "Optional platform label: meta, tiktok, google, linkedin, or other. Not fetched remotely.",
+            "editor": "textfield",
+            "maxLength": 40
+          },
+          "destinationUrl": {
+            "title": "Destination URL",
+            "type": "string",
+            "description": "HTTPS landing URL to check (read-only GET).",
+            "editor": "textfield",
+            "example": "https://example.com/"
+          },
+          "expectedDomain": {
+            "title": "Expected domain",
+            "type": "string",
+            "description": "If set, a final redirect host outside this domain is a failure.",
+            "editor": "textfield",
+            "example": "example.com"
+          },
+          "requiredText": {
+            "title": "Required text",
+            "type": "array",
+            "description": "All of these substrings must appear in the final HTML body.",
+            "editor": "stringList",
+            "items": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          "forbiddenText": {
+            "title": "Forbidden text",
+            "type": "array",
+            "description": "If any substring appears, the destination fails assertions (e.g. Sold out).",
+            "editor": "stringList",
+            "items": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          "shopifyProductUrl": {
+            "title": "Shopify product URL",
+            "type": "string",
+            "description": "Optional. When set with variantId, also checks /products/{handle}.js.",
+            "editor": "textfield",
+            "example": "https://theme-dawn-demo.myshopify.com/products/thelma-sandal"
+          },
+          "variantId": {
+            "title": "Shopify variant ID",
+            "type": "string",
+            "description": "Required with shopifyProductUrl.",
+            "editor": "textfield",
+            "pattern": "^[1-9][0-9]{0,24}$",
+            "example": "39576998346841"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string",
+            "editor": "textfield",
+            "maxLength": 120,
+            "description": "Optional label for this ad row. Not sent to destinations."
+          }
+        }
+      }
+    },
+    "enableShopifyChecks": {
+      "title": "Enable Shopify checks",
+      "type": "boolean",
+      "description": "When false, shopifyProductUrl / variantId fields are ignored and no Shopify request is sent.",
+      "default": true
+    },
+    "previousSnapshot": {
+      "title": "Previous snapshot",
+      "type": "object",
+      "description": "Optional OUTPUT.snapshot from an earlier run. Used for two-strike confirmation when you are not on a saved Apify task.",
+      "editor": "json"
+    },
+    "stateScope": {
+      "title": "State scope",
+      "type": "string",
+      "description": "Optional persistence name for local or non-task runs. An Apify task ID always wins so two tasks cannot share state by accident.",
+      "editor": "textfield",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "maxAds": {
+      "title": "Ad cap",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 25,
+      "default": 25,
+      "description": "Optional ad count cap of 25 or less."
+    },
+    "maxUniqueUrls": {
+      "title": "Unique URL cap",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "default": 10,
+      "description": "Optional unique destination URL cap of 10 or less."
+    },
+    "maxRequests": {
+      "title": "Request cap",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 40,
+      "default": 40,
+      "description": "Optional HTTP request budget of 40 or less (robots, redirects, retries included)."
+    },
+    "maxShopifyProducts": {
+      "title": "Shopify product cap",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3,
+      "default": 3,
+      "description": "Optional Shopify product cap of 3 or less."
+    },
+    "timeoutSeconds": {
+      "title": "Timeout seconds",
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 90,
+      "default": 90,
+      "description": "Wall-clock budget for this run. Cannot exceed 90."
+    },
+    "confirmFailures": {
+      "title": "Confirm failures (strikes)",
+      "type": "integer",
+      "description": "Consecutive failure observations required before confirmedFailure / confirmedShopifyFailure. Default 2. Cannot exceed 2.",
+      "minimum": 1,
+      "maximum": 2,
+      "default": 2
+    }
+  },
+  "required": [
+    "ads"
+  ]
+}

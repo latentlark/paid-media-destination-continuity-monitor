@@ -1,0 +1,17 @@
+.git
+.gitignore
+node_modules
+storage
+test
+scripts
+examples
+evidence
+agent-tools
+uploads
+*.md
+!README.md
+Dockerfile
+.dockerignore
+npm-debug.log
+.env
+.env.*
