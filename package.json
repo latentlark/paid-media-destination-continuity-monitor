@@ -1,9 +1,9 @@
 {
   "name": "paid-media-destination-continuity-monitor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Read-only Apify Actor: landing-page health + optional Shopify variant buyability for an ad destination watchlist, with two-strike confirmed failures.",
+  "description": "Read-only Apify Actor: landing-page health, optional Shopify variant buyability, and affiliate redirect / tracking-parameter QA. Detects broken affiliate redirects and unexpected tracking changes. Does not claim commission attribution.",
   "engines": {
     "node": ">=22"
   },

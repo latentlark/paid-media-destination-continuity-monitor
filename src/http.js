@@ -1,4 +1,5 @@
 import { HARD_LIMITS, USER_AGENT } from './constants.js';
+import { extractClientRedirect, paramsFromUrl } from './params.js';
 import { assertPublicHostname, assertPublicResolution } from './ssrf.js';
 
 export function createBudget(limit) {
@@ -101,6 +102,7 @@ export function createPinnedFetcher({
     maxRedirects = HARD_LIMITS.maxRedirects,
     maxRetryAfterMs = HARD_LIMITS.maxRetryAfterMs,
     accept = 'text/html,application/xhtml+xml,application/json,text/javascript;q=0.9,*/*;q=0.8',
+    followClientRedirects = false,
 }) {
     const waitTurn = createRateLimiter({ now, sleep, intervalMs: rateLimitMs });
 
@@ -178,28 +180,41 @@ export function createPinnedFetcher({
         }
     }
 
-    async function fetchOnceChain(startUrl, retriesLeft) {
+    function recordHop(hops, url, result, kind = 'http') {
+        hops.push({
+            url: url.toString(),
+            status: result.status ?? null,
+            location: result.received ? (header(result.headers, 'location') || null) : null,
+            params: paramsFromUrl(url),
+            reason: result.reason || null,
+            received: Boolean(result.received),
+            kind,
+        });
+    }
+
+    async function fetchOnceChain(startUrl, retriesLeft, hops = [], redirects = 0) {
         let url = startUrl;
-        let redirects = 0;
         while (true) {
             const result = await requestOnce(url);
+            recordHop(hops, url, result, 'http');
             if (!result.received) {
                 if (retriesLeft > 0 && !NO_RETRY_REASONS.has(result.reason) && result.reason !== 'timeout' && now() <= deadlineMs) {
-                    return fetchOnceChain(url, retriesLeft - 1);
+                    hops.pop();
+                    return fetchOnceChain(url, retriesLeft - 1, hops, redirects);
                 }
-                return result;
+                return { ...result, redirectChain: hops };
             }
             if (REDIRECT_STATUSES.has(result.status)) {
                 if (redirects >= maxRedirects) {
-                    return { ...result, received: false, reason: 'too_many_redirects', body: null };
+                    return { ...result, received: false, reason: 'too_many_redirects', body: null, redirectChain: hops };
                 }
                 const location = header(result.headers, 'location');
-                if (!location) return { ...result, received: false, reason: 'redirect_missing_location', body: null };
+                if (!location) return { ...result, received: false, reason: 'redirect_missing_location', body: null, redirectChain: hops };
                 let next;
                 try {
                     next = new URL(location, url);
                 } catch {
-                    return { ...result, received: false, reason: 'redirect_invalid', blocked: true, body: null };
+                    return { ...result, received: false, reason: 'redirect_invalid', blocked: true, body: null, redirectChain: hops };
                 }
                 redirects += 1;
                 url = next;
@@ -212,13 +227,25 @@ export function createPinnedFetcher({
                     return {
                         ...result,
                         reason: result.status === 429 ? 'rate_limited' : 'http_error',
+                        redirectChain: hops,
                     };
                 }
                 if (delay > 0) await sleep(delay);
-                return fetchOnceChain(url, retriesLeft - 1);
+                hops.pop();
+                return fetchOnceChain(url, retriesLeft - 1, hops, redirects);
             }
             if (result.status === 429) result.reason = 'rate_limited';
-            return result;
+            if (followClientRedirects && result.body && redirects < maxRedirects) {
+                const next = extractClientRedirect(result.body, url);
+                if (next && next.toString() !== url.toString()) {
+                    hops[hops.length - 1].location = next.toString();
+                    hops[hops.length - 1].kind = 'client';
+                    redirects += 1;
+                    url = next;
+                    continue;
+                }
+            }
+            return { ...result, redirectChain: hops };
         }
     }
 
@@ -228,7 +255,7 @@ export function createPinnedFetcher({
             try {
                 url = new URL(urlString);
             } catch {
-                return { received: false, reason: 'url', blocked: true, status: null };
+                return { received: false, reason: 'url', blocked: true, status: null, redirectChain: [] };
             }
             return fetchOnceChain(url, maxRetries);
         },

@@ -1,5 +1,5 @@
 import { Actor } from 'apify';
-import { assertChargeEventsConfigured } from './billing_config.js';
+import { resolvePricingMode } from './billing_config.js';
 import { CHARGE_DESTINATION, CHARGE_SHOPIFY, RULE_VERSION, SNAPSHOT_PREFIX } from './constants.js';
 import { FatalInputError } from './errors.js';
 import { runMonitor } from './monitor.js';
@@ -8,19 +8,20 @@ import { createRealResolver, createRealTransport } from './net.js';
 await Actor.init();
 let exitCode = 0;
 let pricingProblem = false;
+let rowsPushed = 0;
 try {
-    let pricing = null;
+    let pricingMode = { mode: 'free', ready: true };
     try {
-        pricing = Actor.getChargingManager().getPricingInfo();
-        assertChargeEventsConfigured(pricing);
+        const pricing = Actor.getChargingManager().getPricingInfo();
+        pricingMode = resolvePricingMode(pricing);
     } catch (error) {
-        pricingProblem = true;
-        throw new FatalInputError(
-            `Pay-per-event pricing could not be read (${error instanceof Error ? error.message : 'unknown'}). No request was sent and no event was charged.`,
-        );
+        // Private/free Actors, or a platform pricing read error, still run. Nothing is charged.
+        pricingMode = { mode: 'free', ready: true };
+        console.warn(`Pricing info unavailable (${error instanceof Error ? error.message : 'unknown'}). Continuing without charges.`);
     }
     const input = clampToPlatformTimeout((await Actor.getInput()) ?? {});
     const store = await openSnapshotStore();
+    const affiliateStore = await openAffiliateStore();
     const result = await runMonitor(input, {
         env: process.env,
         now: () => Date.now(),
@@ -30,12 +31,20 @@ try {
         resolve: createRealResolver(),
         transport: createRealTransport(),
         store,
+        affiliateStore,
         chargeFn: async ({ eventName, count }) => {
+            if (pricingMode.mode !== 'ppe') {
+                return { notOnPlatform: true, chargedCount: 0, eventChargeLimitReached: false };
+            }
             const charged = await Actor.charge({ eventName, count });
             return {
                 chargedCount: charged?.chargedCount ?? 0,
                 eventChargeLimitReached: Boolean(charged?.eventChargeLimitReached),
             };
+        },
+        onRow: async (row) => {
+            await Actor.pushData(row);
+            rowsPushed += 1;
         },
         log: {
             info: (message) => console.log(message),
@@ -43,26 +52,30 @@ try {
         },
         runId: process.env.APIFY_ACTOR_RUN_ID || `local-${process.pid}`,
     });
-    for (const row of result.rows) {
-        await Actor.pushData(row);
+    if (rowsPushed === 0) {
+        for (const row of result.rows) {
+            await Actor.pushData(row);
+            rowsPushed += 1;
+        }
     }
     await Actor.setValue('OUTPUT', result.summary);
 } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const fatal = error instanceof FatalInputError && !pricingProblem;
-    // Invalid input keeps exit 1. Platform/runtime problems end SUCCEEDED with one free explanatory row,
-    // so scheduled monitors and Apify Store QA never see an empty FAILED run.
-    exitCode = fatal ? 1 : 0;
+    // Invalid input, timeouts, blocks and unexpected errors all end SUCCEEDED with one
+    // explanatory row so scheduled monitors and Apify Store QA never see an empty FAILED run.
+    exitCode = 0;
     try {
-        await Actor.pushData({
-            destinationStatus: 'unknown',
-            event: 'run_error',
-            reason: fatal ? 'input_error' : 'run_error',
-            message,
-            charged: false,
-            ruleVersion: RULE_VERSION,
-            finishedAt: new Date().toISOString(),
-        });
+        if (rowsPushed === 0) {
+            await Actor.pushData({
+                destinationStatus: 'unknown',
+                event: 'run_error',
+                reason: error instanceof FatalInputError ? 'input_error' : 'run_error',
+                message,
+                charged: false,
+                ruleVersion: RULE_VERSION,
+                finishedAt: new Date().toISOString(),
+            });
+        }
         await Actor.setStatusMessage(`Nothing checked - ${message}`.slice(0, 900), { isStatusMessageTerminal: true });
     } catch {
         // ignore
@@ -70,10 +83,10 @@ try {
     try {
         await Actor.setValue('OUTPUT', {
             fatal: true,
-            inputError: fatal,
-            configurationError: fatal,
+            inputError: error instanceof FatalInputError,
+            configurationError: Boolean(pricingProblem),
             message,
-            details: fatal ? error.details ?? null : null,
+            details: error instanceof FatalInputError ? error.details ?? null : null,
             charged: false,
             destinationsCharged: 0,
             shopifyCharged: 0,
@@ -112,31 +125,7 @@ async function openSnapshotStore() {
     if (typeof taskId === 'string' && taskId.trim()) {
         const safeId = taskId.trim().replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
         const named = await Actor.openKeyValueStore(`destination-continuity-${safeId}`);
-        return {
-            async get(key) {
-                return named.getValue(key);
-            },
-            async set(key, value) {
-                await named.setValue(key, value);
-            },
-            async listKeys() {
-                const keys = [];
-                try {
-                    await named.forEachKey(async (key) => {
-                        keys.push(key);
-                        if (keys.length > 50) {
-                            const error = new Error('snapshot cap');
-                            error.code = 'SNAPSHOT_CAP';
-                            throw error;
-                        }
-                    }, { prefix: SNAPSHOT_PREFIX });
-                } catch (error) {
-                    if (error?.code === 'SNAPSHOT_CAP') return { keys, truncated: true };
-                    throw error;
-                }
-                return { keys, truncated: false };
-            },
-        };
+        return kvAdapter(named);
     }
     return {
         async get(key) {
@@ -147,6 +136,40 @@ async function openSnapshotStore() {
         },
         async listKeys() {
             return [];
+        },
+    };
+}
+
+async function openAffiliateStore() {
+    const actorId = (process.env.APIFY_ACTOR_ID || 'local').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
+    const named = await Actor.openKeyValueStore(`dest-cont-affil-${actorId}`);
+    return kvAdapter(named);
+}
+
+function kvAdapter(named) {
+    return {
+        async get(key) {
+            return named.getValue(key);
+        },
+        async set(key, value) {
+            await named.setValue(key, value);
+        },
+        async listKeys() {
+            const keys = [];
+            try {
+                await named.forEachKey(async (key) => {
+                    keys.push(key);
+                    if (keys.length > 50) {
+                        const error = new Error('snapshot cap');
+                        error.code = 'SNAPSHOT_CAP';
+                        throw error;
+                    }
+                }, { prefix: SNAPSHOT_PREFIX });
+            } catch (error) {
+                if (error?.code === 'SNAPSHOT_CAP') return { keys, truncated: true };
+                throw error;
+            }
+            return { keys, truncated: false };
         },
     };
 }

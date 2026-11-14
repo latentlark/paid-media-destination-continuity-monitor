@@ -1,8 +1,10 @@
 # Paid Media Destination Continuity Monitor
 
-Check whether the **landing pages your ads point to** still work — and, for Shopify products, whether the **advertised variant is still buyable**. Paste destination URLs (and optional Shopify variant IDs), click Start, and get one clear row per destination with the impacted ad IDs fanned out. *Sold out* and *broken* stay separate from *blocked*, *timeout* and *unknown*.
+Check whether the **landing pages your ads point to** still work, and, for Shopify products, whether the **advertised variant is still buyable**. Optionally inspect **affiliate redirect chains** and tracking parameters. Paste destination URLs (and optional Shopify variant IDs), click Start, and get one clear row per destination with the impacted ad IDs fanned out. *Sold out* and *broken* stay separate from *blocked*, *timeout* and *unknown*.
 
-*No login, no cookies, no proxy, no browser, no campaign edits.* HTTPS GET only. Optional Shopify checks use the documented public Ajax product endpoint.
+**Promise: detect broken affiliate redirects and unexpected tracking changes.** This Actor does not claim commission attribution.
+
+*No login, no cookies, no proxy, no campaign edits.* Default mode is a fast HTTPS GET. Optional Shopify checks use the documented public Ajax product endpoint. Set `renderMode` to `browser` only when you need a headless Chromium render for JavaScript or meta-refresh redirects (use 1024 MB for those runs).
 
 *Built and maintained by LatentLark.* Pair with [Shopify Variant Availability & Price Evidence Monitor](https://apify.com/latentlark/shopify-variant-availability-price-monitor) for deeper variant watchlists, or send rows to Sheets with [Google Sheets Export & Import (No OAuth)](https://apify.com/latentlark/sheets-export).
 
@@ -16,7 +18,7 @@ Check whether the **landing pages your ads point to** still work — and, for Sh
    - `https://example.com/` — expects domain `example.com` and the text `Example Domain`
    - Shopify's public **Dawn theme demo** product *Thelma sandal*, variant `39576998346841` (`Black / 35`), for the optional stock check
 2. Click **Start**. The demo run takes a few seconds, writes **2 rows**, and lists about **$0.013** in events (2 × $0.004 destinations + 1 × $0.005 Shopify) plus a few tenths of a cent of platform usage.
-3. Replace the destinations with your own ad URLs. Label each row with your `adId`. Cap: **25 ads, 10 unique URLs, 3 Shopify products** per run.
+3. Replace the destinations with your own ad URLs. Label each row with your `adId`. Cap: **25 ads, 15 unique URLs, 3 Shopify products, 80 requests** per run (timeout cap 180 seconds; the Store example stays at 90).
 4. To confirm failures across runs (two-strike), **Save as task** and add a **Schedule** (for example, hourly or daily), or pass `previousSnapshot` from an earlier `OUTPUT`.
 
 ## What you can do with it
@@ -61,6 +63,50 @@ Real output from a private platform run on 9 November 2026 (fields shortened):
 | demo-dawn | ok | 200 | out_of_stock | true | true |
 
 The Dawn *Black / 35* variant was sold out on that demo store when the run was taken; other variants of the same product can still be in stock. Live demos can change. The first OOS observation is `oos_pending_confirmation` — a second consecutive OOS on a scheduled task sets `confirmedShopifyFailure`.
+
+
+## Affiliate redirect and parameter QA
+Use this when you need to check tracking links as well as landing pages.
+
+- **Redirect-chain inspection:** every hop is recorded (status, URL, query parameters present). You can see where a required parameter disappears, is renamed, or changes value.
+- **Configurable validation:** pass `requiredParams` globally or per link (`name`, optional `expectedValue`, `aliases`, `severity`). `paramRules` supports per-hop `mayDrop` / `mayRename` rules and aliases. Built-in rules cover common Awin, Impact, CJ and Amazon-style hosts.
+- **Missing is not an automatic failure.** Default severity is `warning`. Networks legitimately consume or swap parameters (for example Awin `awinaffid` may become `awc`). Mark a rule `severity: "error"` only when a drop should fail the tracking check. Landing status and tracking status are separate fields.
+- **Expected destination:** `expectedDomain` still flags a final host outside the merchant domain you named.
+- **Change alerts:** the Actor stores a snapshot keyed by an input hash and, on the next run of the same watchlist, reports newly broken links, a changed final destination, or a changed parameter outcome.
+- **Render modes:** `http` (default, fast) follows `Location` headers, and can follow meta-refresh plus simple `location.href` / `location.replace` assignments. `browser` uses a full headless render. The Store prefill stays on `http` and should finish in well under 2 minutes.
+- You can pass the same URLs as `ads` (existing input, fully backward compatible) or as `links` with a `url` field. Classic ads-only runs keep the previous behaviour, including robots.txt checks. Set `respectRobots: false` when you are inspecting specific tracking URLs you own and a network robots.txt would otherwise block the check.
+
+### Example: one Awin-style link (not the Store prefill)
+
+```json
+{
+  "links": [
+    {
+      "url": "https://www.awin1.com/cread.php?awinmid=1234&awinaffid=9999&ued=https%3A%2F%2Fexample.com%2F",
+      "expectedDomain": "example.com",
+      "requiredParams": [
+        { "name": "awinaffid", "expectedValue": "9999", "aliases": ["awc"], "severity": "warning" }
+      ],
+      "label": "awin-example"
+    }
+  ],
+  "respectRobots": false,
+  "renderMode": "http"
+}
+```
+
+## Proposed pricing (not applied on the live Actor)
+The public Actor still charges **$0.004** per resolved destination and **$0.005** per Shopify check, with no start fee. A later publish of this upgrade would add per-link events after Mohamed approves prices. Draft event keys:
+
+| Event | When | Draft price (to be confirmed from measured compute) |
+|---|---|---|
+| `destination-resolved` | Unchanged, classic landing classification | $0.004 (current) |
+| `shopify-product-check` | Unchanged | $0.005 (current) |
+| `link-checked` | HTTP-mode link / redirect + parameter check | about $0.001 to $0.002 (see test report) |
+| `link-checked-browser` | Full browser render of one link | higher than HTTP (see test report) |
+| Actor start | Optional, not charged today | to be confirmed |
+
+Blocked, timeout, unknown and invalid-input rows stay free. Owner test runs on a private dev Actor are not monetized.
 
 ## Pricing (pay per event)
 | Event | Price |

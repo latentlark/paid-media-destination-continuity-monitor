@@ -1,5 +1,6 @@
-# Apify Node 22 image without a browser. Runtime memory is 256 MB.
-FROM apify/actor-node:22-slim
+# Playwright image so optional browser mode can render JS and meta-refresh redirects.
+# HTTP mode does not launch the browser. Default run memory stays 256 MB.
+FROM apify/actor-node-playwright-chrome:22
 
 ENV NODE_OPTIONS=--max-old-space-size=192
 

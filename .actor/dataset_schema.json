@@ -5,39 +5,176 @@
     "confirmed_failures": {
       "title": "Confirmed failures",
       "transformation": {
-        "fields": ["adIds", "destinationUrl", "destinationStatus", "confirmedFailure", "confirmedShopifyFailure", "impactedTransition", "shopifyAvailability", "event", "checkedAt"]
+        "fields": [
+          "adIds",
+          "destinationUrl",
+          "destinationStatus",
+          "confirmedFailure",
+          "confirmedShopifyFailure",
+          "impactedTransition",
+          "shopifyAvailability",
+          "event",
+          "checkedAt"
+        ]
       },
       "display": {
         "component": "table",
         "properties": {
-          "adIds": { "label": "Ad IDs", "format": "text" },
-          "destinationUrl": { "label": "Destination", "format": "text" },
-          "destinationStatus": { "label": "Status", "format": "text" },
-          "confirmedFailure": { "label": "Confirmed failure", "format": "boolean" },
-          "confirmedShopifyFailure": { "label": "Confirmed OOS", "format": "boolean" },
-          "impactedTransition": { "label": "Transition", "format": "text" },
-          "shopifyAvailability": { "label": "Shopify", "format": "text" },
-          "event": { "label": "Event", "format": "text" },
-          "checkedAt": { "label": "Checked at", "format": "date" }
+          "adIds": {
+            "label": "Ad IDs",
+            "format": "text"
+          },
+          "destinationUrl": {
+            "label": "Destination",
+            "format": "text"
+          },
+          "destinationStatus": {
+            "label": "Status",
+            "format": "text"
+          },
+          "confirmedFailure": {
+            "label": "Confirmed failure",
+            "format": "boolean"
+          },
+          "confirmedShopifyFailure": {
+            "label": "Confirmed OOS",
+            "format": "boolean"
+          },
+          "impactedTransition": {
+            "label": "Transition",
+            "format": "text"
+          },
+          "shopifyAvailability": {
+            "label": "Shopify",
+            "format": "text"
+          },
+          "event": {
+            "label": "Event",
+            "format": "text"
+          },
+          "checkedAt": {
+            "label": "Checked at",
+            "format": "date"
+          }
         }
       }
     },
     "all": {
       "title": "All destinations",
       "transformation": {
-        "fields": ["adIds", "destinationUrl", "destinationStatus", "httpStatus", "shopifyAvailability", "chargedDestination", "chargedShopify", "checkedAt"]
+        "fields": [
+          "adIds",
+          "destinationUrl",
+          "destinationStatus",
+          "httpStatus",
+          "shopifyAvailability",
+          "chargedDestination",
+          "chargedShopify",
+          "checkedAt"
+        ]
       },
       "display": {
         "component": "table",
         "properties": {
-          "adIds": { "label": "Ad IDs", "format": "text" },
-          "destinationUrl": { "label": "Destination", "format": "text" },
-          "destinationStatus": { "label": "Status", "format": "text" },
-          "httpStatus": { "label": "HTTP", "format": "number" },
-          "shopifyAvailability": { "label": "Shopify", "format": "text" },
-          "chargedDestination": { "label": "Charged dest", "format": "boolean" },
-          "chargedShopify": { "label": "Charged Shopify", "format": "boolean" },
-          "checkedAt": { "label": "Checked at", "format": "date" }
+          "adIds": {
+            "label": "Ad IDs",
+            "format": "text"
+          },
+          "destinationUrl": {
+            "label": "Destination",
+            "format": "text"
+          },
+          "destinationStatus": {
+            "label": "Status",
+            "format": "text"
+          },
+          "httpStatus": {
+            "label": "HTTP",
+            "format": "number"
+          },
+          "shopifyAvailability": {
+            "label": "Shopify",
+            "format": "text"
+          },
+          "chargedDestination": {
+            "label": "Charged dest",
+            "format": "boolean"
+          },
+          "chargedShopify": {
+            "label": "Charged Shopify",
+            "format": "boolean"
+          },
+          "checkedAt": {
+            "label": "Checked at",
+            "format": "date"
+          }
+        }
+      }
+    },
+    "tracking": {
+      "title": "Redirect and tracking QA",
+      "transformation": {
+        "fields": [
+          "adIds",
+          "destinationUrl",
+          "finalUrl",
+          "destinationStatus",
+          "expectedDomainOk",
+          "trackingStatus",
+          "trackingIssues",
+          "changeAlerts",
+          "renderMode",
+          "httpStatus",
+          "checkedAt"
+        ]
+      },
+      "display": {
+        "component": "table",
+        "properties": {
+          "adIds": {
+            "label": "Ad IDs",
+            "format": "text"
+          },
+          "destinationUrl": {
+            "label": "Start URL",
+            "format": "text"
+          },
+          "finalUrl": {
+            "label": "Final URL",
+            "format": "text"
+          },
+          "destinationStatus": {
+            "label": "Landing status",
+            "format": "text"
+          },
+          "expectedDomainOk": {
+            "label": "Domain OK",
+            "format": "boolean"
+          },
+          "trackingStatus": {
+            "label": "Tracking",
+            "format": "text"
+          },
+          "trackingIssues": {
+            "label": "Tracking issues",
+            "format": "text"
+          },
+          "changeAlerts": {
+            "label": "Change alerts",
+            "format": "text"
+          },
+          "renderMode": {
+            "label": "Mode",
+            "format": "text"
+          },
+          "httpStatus": {
+            "label": "HTTP",
+            "format": "number"
+          },
+          "checkedAt": {
+            "label": "Checked at",
+            "format": "date"
+          }
         }
       }
     }

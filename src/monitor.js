@@ -1,4 +1,12 @@
+import {
+    affiliateSnapshotKey,
+    buildAffiliateSnapshot,
+    compareAffiliateSnapshots,
+    inputHash,
+    linkSnapshotRecord,
+} from './affiliate.js';
 import { createCharger } from './billing.js';
+import { followWithBrowser } from './browser.js';
 import {
     CHARGE_DESTINATION,
     CHARGE_SHOPIFY,
@@ -10,6 +18,7 @@ import {
 import { FatalInputError } from './errors.js';
 import { createBudget, createPinnedFetcher } from './http.js';
 import { classifyLanding, isUnknownStatus } from './landing.js';
+import { evaluateParamChain, normalizeParamRules, normalizeRequiredParams } from './params.js';
 import { crawlDelayBlocks, parseRobots, pathAllowed } from './robots.js';
 import { classifyShopifyVariant } from './shopify.js';
 import {
@@ -81,6 +90,52 @@ export function assertNoForbiddenFeatures(input) {
     }
 }
 
+export function collectWatchlist(input) {
+    const ads = [];
+    if (Array.isArray(input?.ads)) ads.push(...input.ads);
+    if (Array.isArray(input?.links)) {
+        for (const link of input.links) {
+            if (!link || typeof link !== 'object' || Array.isArray(link)) {
+                ads.push(link);
+                continue;
+            }
+            ads.push({
+                ...link,
+                destinationUrl: link.destinationUrl || link.url,
+            });
+        }
+    }
+    return ads;
+}
+
+export function resolveAffiliateOptions(input) {
+    const affiliateMode = Boolean(
+        (Array.isArray(input?.links) && input.links.length > 0)
+        || (Array.isArray(input?.requiredParams) && input.requiredParams.length > 0)
+        || (input?.paramRules && typeof input.paramRules === 'object')
+        || input?.renderMode === 'browser'
+        || input?.followClientRedirects === true,
+    );
+    const renderMode = input?.renderMode === 'browser' ? 'browser' : 'http';
+    const followClientRedirects = input?.followClientRedirects == null
+        ? affiliateMode
+        : input.followClientRedirects === true;
+    const respectRobots = input?.respectRobots == null ? true : input.respectRobots === true;
+    const required = normalizeRequiredParams(input?.requiredParams, 'requiredParams');
+    if (required.error) throw new FatalInputError(required.error);
+    const rules = normalizeParamRules(input?.paramRules);
+    if (rules.error) throw new FatalInputError(rules.error);
+    return {
+        affiliateMode,
+        renderMode,
+        followClientRedirects,
+        respectRobots,
+        requiredParams: required.list,
+        paramRules: rules.rules,
+        inputHashValue: inputHash(input),
+    };
+}
+
 export function normalizeAds(ads, limits) {
     if (!Array.isArray(ads) || ads.length === 0) {
         throw new FatalInputError('ads must contain at least one destination URL');
@@ -95,9 +150,14 @@ export function normalizeAds(ads, limits) {
             errors.push({ index, error: 'item_invalid' });
             return;
         }
-        const dest = parseHttpsUrl(item.destinationUrl);
+        const dest = parseHttpsUrl(item.destinationUrl || item.url);
         if (dest.error) {
             errors.push({ index, error: dest.error });
+            return;
+        }
+        const itemParams = normalizeRequiredParams(item.requiredParams, 'requiredParams');
+        if (itemParams.error) {
+            errors.push({ index, error: itemParams.error });
             return;
         }
         const expected = normalizeDomain(item.expectedDomain);
@@ -154,6 +214,7 @@ export function normalizeAds(ads, limits) {
                 expectedDomain: expected.domain,
                 requiredText: required.list,
                 forbiddenText: forbidden.list,
+                requiredParams: itemParams.list,
                 shopify,
                 ads: [],
             };
@@ -162,6 +223,13 @@ export function normalizeAds(ads, limits) {
             // merge text asserts (union) and keep first shopify config
             group.requiredText = [...new Set([...group.requiredText, ...required.list])];
             group.forbiddenText = [...new Set([...group.forbiddenText, ...forbidden.list])];
+            const seenParams = new Set(group.requiredParams.map((param) => param.name.toLowerCase()));
+            for (const param of itemParams.list) {
+                if (!seenParams.has(param.name.toLowerCase())) {
+                    group.requiredParams.push(param);
+                    seenParams.add(param.name.toLowerCase());
+                }
+            }
             if (!group.expectedDomain && expected.domain) group.expectedDomain = expected.domain;
             if (!group.shopify && shopify) group.shopify = shopify;
         }
@@ -187,7 +255,9 @@ export async function runMonitor(input, deps) {
     assertNoForbiddenFeatures(input);
     const limits = resolveLimits(input ?? {});
     const enableShopifyChecks = input?.enableShopifyChecks !== false;
-    const normalized = normalizeAds(input.ads, limits);
+    const affiliate = resolveAffiliateOptions(input ?? {});
+    const watchlist = collectWatchlist(input ?? {});
+    const normalized = normalizeAds(watchlist, limits);
     const scopeInfo = resolveScope(deps.env ?? {}, input);
     const startedAtMs = deps.now();
     const startedAt = new Date(startedAtMs).toISOString();
@@ -196,10 +266,11 @@ export async function runMonitor(input, deps) {
     const robotsCache = new Map();
 
     const allow = async (url) => {
+        if (!affiliate.respectRobots) return true;
         const host = url.hostname.toLowerCase();
         let robots = robotsCache.get(host);
         if (!robots) {
-            // fetch robots once per host — counted in budget via fetcher below? We'll do a lightweight allow-all until fetched.
+            // fetch robots once per host. Counted in the shared request budget.
             robots = { rules: [], crawlDelayMs: null, loaded: false };
             robotsCache.set(host, robots);
         }
@@ -219,9 +290,15 @@ export async function runMonitor(input, deps) {
         rateLimitMs: HARD_LIMITS.rateLimitMs,
         maxRetries: HARD_LIMITS.maxRetries,
         maxRedirects: HARD_LIMITS.maxRedirects,
+        followClientRedirects: affiliate.followClientRedirects,
     });
 
     async function ensureRobots(hostname) {
+        if (!affiliate.respectRobots) {
+            const skip = { rules: [], crawlDelayMs: null, loaded: true };
+            robotsCache.set(hostname, skip);
+            return skip;
+        }
         let robots = robotsCache.get(hostname);
         if (robots?.loaded) return robots;
         const result = await fetcher.fetch(`https://${hostname}/robots.txt`);
@@ -253,10 +330,35 @@ export async function runMonitor(input, deps) {
     const rows = [];
     const snapshotDestinations = {};
     const shopifyDone = new Map();
+    const affiliateLinks = {};
     let destinationsCharged = 0;
     let shopifyCharged = 0;
+    const hash = affiliate.inputHashValue;
+    const affilKey = affiliateSnapshotKey(hash);
+    const previousAffil = deps.affiliateStore ? await deps.affiliateStore.get(affilKey) : null;
 
-    for (const group of normalized.groups) {
+    const flushMarginMs = 8000;
+    for (let groupIndex = 0; groupIndex < normalized.groups.length; groupIndex += 1) {
+        const group = normalized.groups[groupIndex];
+        if (deps.now() + flushMarginMs > deadlineMs && groupIndex < normalized.groups.length) {
+            const remaining = normalized.groups.slice(groupIndex);
+            for (const leftover of remaining) {
+                const classified = classifyLanding({
+                    received: false,
+                    reason: 'timeout',
+                    blocked: false,
+                    status: null,
+                    body: '',
+                    finalUrl: leftover.destinationUrl,
+                    expectedDomain: leftover.expectedDomain,
+                    requiredText: leftover.requiredText,
+                    forbiddenText: leftover.forbiddenText,
+                    redirectChain: [],
+                });
+                await pushResult(leftover, classified, null, history.folded.get(leftover.key), []);
+            }
+            break;
+        }
         await ensureRobots(group.hostname);
         const robots = robotsCache.get(group.hostname);
         if (crawlDelayBlocks(robots?.crawlDelayMs)) {
@@ -271,11 +373,22 @@ export async function runMonitor(input, deps) {
                 requiredText: group.requiredText,
                 forbiddenText: group.forbiddenText,
             });
-            pushResult(group, classified, null, history.folded.get(group.key));
+            await pushResult(group, classified, null, history.folded.get(group.key), []);
             continue;
         }
 
-        const landingResult = await fetcher.fetch(group.destinationUrl);
+        let landingResult;
+        if (affiliate.renderMode === 'browser') {
+            const browserFn = deps.browserFollow || followWithBrowser;
+            landingResult = await browserFn(group.destinationUrl, {
+                deadlineMs,
+                now: deps.now,
+                maxRedirects: HARD_LIMITS.maxRedirects,
+            });
+        } else {
+            landingResult = await fetcher.fetch(group.destinationUrl);
+        }
+        const redirectChain = landingResult.redirectChain || [];
         const classified = classifyLanding({
             ...landingResult,
             body: landingResult.body,
@@ -283,7 +396,12 @@ export async function runMonitor(input, deps) {
             expectedDomain: group.expectedDomain,
             requiredText: group.requiredText,
             forbiddenText: group.forbiddenText,
-            redirectChain: [],
+            redirectChain,
+        });
+        const tracking = evaluateParamChain({
+            hops: redirectChain,
+            requiredParams: [...affiliate.requiredParams, ...(group.requiredParams || [])],
+            paramRules: affiliate.paramRules,
         });
 
         let shopifyClassified = null;
@@ -306,10 +424,10 @@ export async function runMonitor(input, deps) {
             }
         }
 
-        pushResult(group, classified, shopifyClassified, history.folded.get(group.key));
+        await pushResult(group, classified, shopifyClassified, history.folded.get(group.key), redirectChain, tracking);
     }
 
-    function pushResult(group, classified, shopifyClassified, previous) {
+    async function pushResult(group, classified, shopifyClassified, previous, redirectChain = [], tracking = null) {
         const observedAt = new Date(deps.now()).toISOString();
         const observation = {
             destinationStatus: classified.destinationStatus,
@@ -376,6 +494,13 @@ export async function runMonitor(input, deps) {
             checkedAt: observedAt,
             requestsUsed: budget.used,
             requestLimit: budget.limit,
+            renderMode: affiliate.renderMode,
+            redirectChain: redirectChain,
+            trackingStatus: tracking?.trackingStatus ?? 'not_configured',
+            trackingIssues: tracking?.issues ?? [],
+            changeAlerts: [],
+            inputHash: hash,
+            promise: 'Detect broken affiliate redirects and unexpected tracking changes.',
             chargedDestination: false,
             chargedShopify: false,
             chargeDestinationReason: 'not_billable',
@@ -386,7 +511,7 @@ export async function runMonitor(input, deps) {
         rows.push({ rowBase, classified, shopifyClassified, group });
     }
 
-    // Apply charges (async) for billable rows
+    // Apply charges (async) for billable rows, then persist each row immediately.
     const finalRows = [];
     for (const pending of rows) {
         const { rowBase, classified, shopifyClassified, group } = pending;
@@ -402,7 +527,18 @@ export async function runMonitor(input, deps) {
             rowBase.chargeShopifyReason = charge.reason;
             if (charge.charged) shopifyCharged += 1;
         }
+        const record = linkSnapshotRecord(rowBase);
+        affiliateLinks[group.key] = record;
+        rowBase.changeAlerts = compareAffiliateSnapshots(
+            previousAffil && previousAffil.links && previousAffil.links[group.key]
+                ? { links: { [group.key]: previousAffil.links[group.key] } }
+                : null,
+            { [group.key]: record },
+        );
         finalRows.push(rowBase);
+        if (typeof deps.onRow === 'function') {
+            await deps.onRow(rowBase);
+        }
     }
 
     const completedAt = new Date(deps.now()).toISOString();
@@ -419,6 +555,19 @@ export async function runMonitor(input, deps) {
     } else {
         // still write for run-scoped local tests when store provided
         baselineWrite = await appendSnapshot(deps.store, snapshot);
+    }
+
+    const changeAlerts = compareAffiliateSnapshots(previousAffil, affiliateLinks);
+    let affiliateWrite = { written: false, reason: 'skipped' };
+    if (deps.affiliateStore) {
+        const affilSnap = buildAffiliateSnapshot({
+            inputHashValue: hash,
+            runId: deps.runId,
+            checkedAt: completedAt,
+            links: affiliateLinks,
+        });
+        await deps.affiliateStore.set(affilKey, affilSnap);
+        affiliateWrite = { written: true, reason: 'ok', key: affilKey };
     }
 
     const confirmedFailures = finalRows.filter((r) => r.confirmedFailure);
@@ -442,6 +591,11 @@ export async function runMonitor(input, deps) {
         proxyUsed: false,
         notificationsSent: false,
         countryEmulation: false,
+        renderMode: affiliate.renderMode,
+        inputHash: hash,
+        changeAlerts,
+        affiliateWrite,
+        promise: 'Detect broken affiliate redirects and unexpected tracking changes.',
         chargeEvents: {
             [CHARGE_DESTINATION]: CHARGE_DESTINATION,
             [CHARGE_SHOPIFY]: CHARGE_SHOPIFY,

@@ -95,10 +95,13 @@ export async function run(input, extra = {}) {
         resolve: extra.resolve ?? site.resolve,
         transport: extra.transport ?? site.transport,
         store,
+        affiliateStore: extra.affiliateStore ?? store,
         chargeFn: extra.chargeFn ?? (async (options) => {
             charges.push(options);
             return { chargedCount: 1, eventChargeLimitReached: false };
         }),
+        onRow: extra.onRow,
+        browserFollow: extra.browserFollow,
         log: { info() {}, warn() {} },
         runId: extra.runId ?? 'run-1',
     });
