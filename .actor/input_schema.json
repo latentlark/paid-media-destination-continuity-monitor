@@ -112,13 +112,49 @@
           "requiredParams": {
             "title": "Required tracking parameters",
             "type": "array",
-            "description": "Per-ad parameter inspection. Same shape as the global requiredParams field. Missing is not an automatic failure.",
-            "editor": "json",
+            "description": "Parameters to inspect. A missing parameter is not an automatic failure unless severity is error.",
+            "editor": "schemaBased",
             "items": {
-              "type": [
-                "string",
-                "object"
-              ]
+              "type": "object",
+              "required": [
+                "name"
+              ],
+              "properties": {
+                "name": {
+                  "title": "Parameter name",
+                  "type": "string",
+                  "description": "Query parameter to inspect, for example awinaffid or tag.",
+                  "editor": "textfield",
+                  "maxLength": 80
+                },
+                "expectedValue": {
+                  "title": "Expected value",
+                  "type": "string",
+                  "description": "Optional. Compared only against this parameter on the start URL, not against a network-issued click ID after a rename.",
+                  "editor": "textfield"
+                },
+                "aliases": {
+                  "title": "Aliases",
+                  "type": "array",
+                  "description": "Other names that count as the same parameter (for example awc for awinaffid).",
+                  "editor": "stringList",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 80
+                  }
+                },
+                "severity": {
+                  "title": "Severity",
+                  "type": "string",
+                  "description": "info, warning, or error. Default is warning, so a missing or consumed parameter is not an automatic failure.",
+                  "enum": [
+                    "info",
+                    "warning",
+                    "error"
+                  ],
+                  "default": "warning"
+                }
+              }
             }
           }
         }
@@ -224,10 +260,49 @@
           "requiredParams": {
             "title": "Required tracking parameters",
             "type": "array",
-            "description": "Parameters to inspect on this link. A missing parameter is not an automatic failure unless severity is error.",
-            "editor": "json",
+            "description": "Parameters to inspect. A missing parameter is not an automatic failure unless severity is error.",
+            "editor": "schemaBased",
             "items": {
-              "type": "object"
+              "type": "object",
+              "required": [
+                "name"
+              ],
+              "properties": {
+                "name": {
+                  "title": "Parameter name",
+                  "type": "string",
+                  "description": "Query parameter to inspect, for example awinaffid or tag.",
+                  "editor": "textfield",
+                  "maxLength": 80
+                },
+                "expectedValue": {
+                  "title": "Expected value",
+                  "type": "string",
+                  "description": "Optional. Compared only against this parameter on the start URL, not against a network-issued click ID after a rename.",
+                  "editor": "textfield"
+                },
+                "aliases": {
+                  "title": "Aliases",
+                  "type": "array",
+                  "description": "Other names that count as the same parameter (for example awc for awinaffid).",
+                  "editor": "stringList",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 80
+                  }
+                },
+                "severity": {
+                  "title": "Severity",
+                  "type": "string",
+                  "description": "info, warning, or error. Default is warning, so a missing or consumed parameter is not an automatic failure.",
+                  "enum": [
+                    "info",
+                    "warning",
+                    "error"
+                  ],
+                  "default": "warning"
+                }
+              }
             }
           },
           "adId": {
@@ -266,20 +341,109 @@
     "requiredParams": {
       "title": "Global required tracking parameters",
       "type": "array",
-      "description": "Inspect these query parameters across every link. Each item may be a name string or an object: {name, expectedValue, aliases, severity}. Severity is info, warning, or error. Default severity is warning, so a missing or consumed parameter is not an automatic failure. Networks may drop or rename parameters; add aliases or per-hop rules for that.",
-      "editor": "json",
+      "description": "Inspect these query parameters across every link. Default severity is warning, so a missing or consumed parameter is not an automatic failure. Networks may drop or rename parameters; add aliases or per-hop rules for that.",
+      "editor": "schemaBased",
       "items": {
-        "type": [
-          "string",
-          "object"
-        ]
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "title": "Parameter name",
+            "type": "string",
+            "description": "Query parameter to inspect, for example awinaffid or tag.",
+            "editor": "textfield",
+            "maxLength": 80
+          },
+          "expectedValue": {
+            "title": "Expected value",
+            "type": "string",
+            "description": "Optional. Compared only against this parameter on the start URL, not against a network-issued click ID after a rename.",
+            "editor": "textfield"
+          },
+          "aliases": {
+            "title": "Aliases",
+            "type": "array",
+            "description": "Other names that count as the same parameter (for example awc for awinaffid).",
+            "editor": "stringList",
+            "items": {
+              "type": "string",
+              "maxLength": 80
+            }
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string",
+            "description": "info, warning, or error. Default is warning, so a missing or consumed parameter is not an automatic failure.",
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ],
+            "default": "warning"
+          }
+        }
       }
     },
     "paramRules": {
       "title": "Parameter validation rules",
       "type": "object",
-      "description": "Configurable validation. aliases maps a required name to other names (for example clickref -> awc). perHop is a list of {hostSuffix, mayDrop, mayRename} rules. useDefaultNetworkRules (default true) applies built-in consume/rename rules for Awin, Impact, CJ and Amazon-style hosts. defaultSeverity is info, warning, or error (default warning).",
-      "editor": "json"
+      "description": "Configurable validation. aliases maps a required name to other names (for example clickref to awc). perHop is a list of {hostSuffix, mayDrop, mayRename} rules. useDefaultNetworkRules (default true) applies built-in consume/rename rules for Awin, Impact, CJ and Amazon-style hosts. defaultSeverity is info, warning, or error (default warning).",
+      "editor": "json",
+      "properties": {
+        "aliases": {
+          "title": "Aliases",
+          "type": "object",
+          "description": "Map of parameter name to a list of alias names."
+        },
+        "perHop": {
+          "title": "Per-hop rules",
+          "type": "array",
+          "editor": "schemaBased",
+          "items": {
+            "type": "object",
+            "required": [
+              "hostSuffix"
+            ],
+            "properties": {
+              "hostSuffix": {
+                "title": "Host suffix",
+                "type": "string",
+                "editor": "textfield"
+              },
+              "mayDrop": {
+                "title": "May drop",
+                "type": "array",
+                "editor": "stringList",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "mayRename": {
+                "title": "May rename",
+                "type": "object",
+                "editor": "json"
+              }
+            }
+          }
+        },
+        "useDefaultNetworkRules": {
+          "title": "Use built-in network rules",
+          "type": "boolean",
+          "default": true
+        },
+        "defaultSeverity": {
+          "title": "Default severity",
+          "type": "string",
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "default": "warning"
+        }
+      }
     },
     "renderMode": {
       "title": "Render mode",
