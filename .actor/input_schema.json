@@ -309,13 +309,15 @@
             "title": "Ad or link ID",
             "type": "string",
             "editor": "textfield",
-            "maxLength": 120
+            "maxLength": 120,
+            "description": "Your ad or campaign identifier. Not fetched remotely."
           },
           "label": {
             "title": "Label",
             "type": "string",
             "editor": "textfield",
-            "maxLength": 120
+            "maxLength": 120,
+            "description": "Optional label for this link. Not sent to destinations."
           },
           "requiredText": {
             "title": "Required text",
@@ -324,7 +326,8 @@
             "items": {
               "type": "string",
               "maxLength": 200
-            }
+            },
+            "description": "All of these substrings must appear in the final HTML body."
           },
           "forbiddenText": {
             "title": "Forbidden text",
@@ -333,7 +336,8 @@
             "items": {
               "type": "string",
               "maxLength": 200
-            }
+            },
+            "description": "If any substring appears, the destination fails assertions."
           }
         }
       }
@@ -410,7 +414,8 @@
               "hostSuffix": {
                 "title": "Host suffix",
                 "type": "string",
-                "editor": "textfield"
+                "editor": "textfield",
+                "description": "Hostname suffix to match, for example awin1.com."
               },
               "mayDrop": {
                 "title": "May drop",
@@ -418,20 +423,24 @@
                 "editor": "stringList",
                 "items": {
                   "type": "string"
-                }
+                },
+                "description": "Parameter names this host may legitimately drop."
               },
               "mayRename": {
                 "title": "May rename",
                 "type": "object",
-                "editor": "json"
+                "editor": "json",
+                "description": "Map of original parameter names to the names this host may emit instead."
               }
             }
-          }
+          },
+          "description": "Host-specific consume and rename rules applied when a parameter disappears after that host."
         },
         "useDefaultNetworkRules": {
           "title": "Use built-in network rules",
           "type": "boolean",
-          "default": true
+          "default": true,
+          "description": "When true (default), apply built-in consume and rename rules for Awin, Impact, CJ and Amazon-style hosts."
         },
         "defaultSeverity": {
           "title": "Default severity",
@@ -441,7 +450,8 @@
             "warning",
             "error"
           ],
-          "default": "warning"
+          "default": "warning",
+          "description": "Severity used when a required parameter does not set its own. Default is warning."
         }
       }
     },
