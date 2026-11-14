@@ -38,6 +38,81 @@ export function createRateLimiter({ now, sleep, intervalMs }) {
     };
 }
 
+/**
+ * Per-host start spacing plus a cap on in-flight requests to the same host.
+ * enter() resolves true when a slot is reserved, false if the deadline would be missed.
+ * Call leave() once for every successful enter(), including after errors.
+ */
+export function createHostScheduler({ now, sleep, intervalMs, perHostConcurrency = 1 }) {
+    const hosts = new Map();
+    const limit = Math.max(1, perHostConcurrency);
+
+    function get(hostname) {
+        let state = hosts.get(hostname);
+        if (!state) {
+            state = { active: 0, lastStart: null, queue: [], pumping: false };
+            hosts.set(hostname, state);
+        }
+        return state;
+    }
+
+    async function pump(state) {
+        if (state.pumping) return;
+        state.pumping = true;
+        try {
+            while (state.queue.length > 0) {
+                if (state.active >= limit) return;
+                const job = state.queue[0];
+                const time = now();
+                if (time > job.deadlineMs) {
+                    state.queue.shift();
+                    job.resolve(false);
+                    continue;
+                }
+                const wait = state.lastStart == null ? 0 : Math.max(0, intervalMs - (time - state.lastStart));
+                if (wait > 0) {
+                    if (time + wait > job.deadlineMs) {
+                        state.queue.shift();
+                        job.resolve(false);
+                        continue;
+                    }
+                    await sleep(wait);
+                    continue;
+                }
+                state.queue.shift();
+                state.active += 1;
+                state.lastStart = now();
+                job.resolve(true);
+            }
+        } finally {
+            state.pumping = false;
+            if (state.queue.length > 0 && state.active < limit) {
+                const time = now();
+                const wait = state.lastStart == null ? 0 : Math.max(0, intervalMs - (time - state.lastStart));
+                if (wait <= 0) {
+                    queueMicrotask(() => { pump(state); });
+                }
+            }
+        }
+    }
+
+    return {
+        async enter(hostname, deadlineMs) {
+            if (now() > deadlineMs) return false;
+            const state = get(hostname);
+            return await new Promise((resolve) => {
+                state.queue.push({ resolve, deadlineMs });
+                pump(state);
+            });
+        },
+        leave(hostname) {
+            const state = get(hostname);
+            state.active = Math.max(0, state.active - 1);
+            pump(state);
+        },
+    };
+}
+
 export function parseRetryAfter(value, nowMs) {
     if (value == null || value === '') return null;
     const text = Array.isArray(value) ? String(value[0] ?? '') : String(value);
@@ -98,13 +173,19 @@ export function createPinnedFetcher({
     deadlineMs,
     allow,
     rateLimitMs = HARD_LIMITS.rateLimitMs,
+    perHostConcurrency = HARD_LIMITS.defaultConcurrencyPerHost,
     maxRetries = HARD_LIMITS.maxRetries,
     maxRedirects = HARD_LIMITS.maxRedirects,
     maxRetryAfterMs = HARD_LIMITS.maxRetryAfterMs,
     accept = 'text/html,application/xhtml+xml,application/json,text/javascript;q=0.9,*/*;q=0.8',
     followClientRedirects = false,
 }) {
-    const waitTurn = createRateLimiter({ now, sleep, intervalMs: rateLimitMs });
+    const scheduler = createHostScheduler({
+        now,
+        sleep,
+        intervalMs: rateLimitMs,
+        perHostConcurrency,
+    });
 
     async function prepare(url) {
         if (url.protocol !== 'https:') return { ok: false, reason: 'protocol', blocked: true };
@@ -138,11 +219,12 @@ export function createPinnedFetcher({
         if (!prepared.ok) {
             return { received: false, reason: prepared.reason, blocked: Boolean(prepared.blocked), status: null };
         }
-        const turned = await waitTurn(prepared.hostname, deadlineMs);
-        if (!turned || now() > deadlineMs) return { received: false, reason: 'timeout', blocked: false, status: null };
-        if (!budget.tryTake()) return { received: false, reason: 'request_budget_exhausted', blocked: false, status: null };
-        const timeoutMs = Math.max(1, Math.min(15_000, deadlineMs - now()));
+        const turned = await scheduler.enter(prepared.hostname, deadlineMs);
+        if (!turned) return { received: false, reason: 'timeout', blocked: false, status: null };
         try {
+            if (now() > deadlineMs) return { received: false, reason: 'timeout', blocked: false, status: null };
+            if (!budget.tryTake()) return { received: false, reason: 'request_budget_exhausted', blocked: false, status: null };
+            const timeoutMs = Math.max(1, Math.min(15_000, deadlineMs - now()));
             const response = await transport({
                 hostname: prepared.hostname,
                 address: prepared.address,
@@ -177,6 +259,8 @@ export function createPinnedFetcher({
                     ? 'timeout'
                     : 'network';
             return { received: false, reason: code, blocked: false, status: null };
+        } finally {
+            scheduler.leave(prepared.hostname);
         }
     }
 

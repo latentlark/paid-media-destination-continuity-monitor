@@ -120,7 +120,7 @@ describe('runMonitor', () => {
 
     it('rejects raising caps', async () => {
         await assert.rejects(
-            () => run({ ads: [ad()], maxAds: 26 }, { site: scriptedSite({}) }),
+            () => run({ ads: [ad()], maxAds: 10001 }, { site: scriptedSite({}) }),
             /cannot exceed/,
         );
     });

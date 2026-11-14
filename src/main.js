@@ -22,6 +22,23 @@ try {
     const input = clampToPlatformTimeout((await Actor.getInput()) ?? {});
     const store = await openSnapshotStore();
     const affiliateStore = await openAffiliateStore();
+    const progressStore = {
+        async get(key) {
+            return Actor.getValue(key);
+        },
+        async set(key, value) {
+            await Actor.setValue(key, value);
+        },
+    };
+    let saveProgress = async () => {};
+    Actor.on('migrating', async () => {
+        try {
+            await saveProgress();
+        } catch (error) {
+            console.warn(`Could not persist bulk progress before migration: ${error instanceof Error ? error.message : 'unknown'}`);
+        }
+        await Actor.reboot();
+    });
     const result = await runMonitor(input, {
         env: process.env,
         now: () => Date.now(),
@@ -32,6 +49,10 @@ try {
         transport: createRealTransport(),
         store,
         affiliateStore,
+        progressStore,
+        registerProgressSaver: (fn) => {
+            saveProgress = fn;
+        },
         configuredChargeEvents: pricingMode.configuredEvents || new Set(),
         chargeFn: async ({ eventName, count }) => {
             if (pricingMode.mode !== 'ppe') {

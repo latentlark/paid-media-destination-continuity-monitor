@@ -1,12 +1,18 @@
 /** Hard caps. Input may lower these. Input must not raise them. */
 export const HARD_LIMITS = Object.freeze({
-    maxAds: 25,
-    maxUniqueUrls: 15,
-    maxRequests: 80,
+    maxAds: 10_000,
+    maxUniqueUrls: 5_000,
+    maxRequests: 20_000,
     maxShopifyProducts: 3,
-    timeoutSeconds: 180,
+    timeoutSeconds: 3_600,
     memoryMbytes: 256,
-    rateLimitMs: 1000,
+    rateLimitMs: 400,
+    minRateLimitMs: 200,
+    maxRateLimitMs: 10_000,
+    maxConcurrency: 20,
+    maxConcurrencyPerHost: 2,
+    defaultConcurrency: 10,
+    defaultConcurrencyPerHost: 2,
     maxRetries: 1,
     maxRedirects: 10,
     maxRetryAfterMs: 10_000,
@@ -16,9 +22,10 @@ export const HARD_LIMITS = Object.freeze({
     maxCrawlDelayMs: 5_000,
     confirmFailures: 2,
     variantResponseCap: 250,
+    flushMarginMs: 8_000,
 });
 
-export const RULE_VERSION = '0.2.0';
+export const RULE_VERSION = '0.2.1';
 export const SCHEMA_VERSION = 1;
 export const CHARGE_DESTINATION = 'destination-resolved';
 export const CHARGE_SHOPIFY = 'shopify-product-check';
@@ -33,5 +40,6 @@ export const SOURCE_SHOPIFY = 'shopify_ajax_product';
 
 export const SNAPSHOT_PREFIX = 'CONT_SNAPSHOT_';
 export const LEDGER_KEY_PREFIX = 'CONT_CHARGE_LEDGER_';
+export const PROGRESS_KEY_PREFIX = 'BULK_PROGRESS_';
 
 export const USER_AGENT = 'LatentLarkDestinationContinuity/0.2 (+https://apify.com/latentlark; read-only; affiliate-link-qa)';

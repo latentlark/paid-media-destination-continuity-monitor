@@ -18,7 +18,7 @@ Check whether the **landing pages your ads point to** still work, and, for Shopi
    - `https://example.com/` expects domain `example.com` and the text `Example Domain`
    - Shopify's public **Dawn theme demo** product *Thelma sandal*, variant `39576998346841` (`Black / 35`), for the optional stock check
 2. Click **Start**. The demo run takes a few seconds, writes **2 rows**, and lists about **$0.013** in events (2 × $0.004 destinations + 1 × $0.005 Shopify) plus a few tenths of a cent of platform usage.
-3. Replace the destinations with your own ad URLs. Label each row with your `adId`. Cap: **25 ads, 15 unique URLs, 3 Shopify products, 80 requests** per run (timeout cap 180 seconds; the Store example stays at 90).
+3. Replace the destinations with your own ad URLs. Label each row with your `adId`. Cap: **10,000 ads, 5,000 unique URLs, 3 Shopify products, 20,000 requests** per run (timeout cap 3,600 seconds; the Store example stays at 90).
 4. To confirm failures across runs (two-strike), **Save as task** and add a **Schedule** (for example, hourly or daily), or pass `previousSnapshot` from an earlier `OUTPUT`.
 
 ## What you can do with it
@@ -135,6 +135,7 @@ A unique URL is never charged for both `destination-resolved` and a link-check e
 | `previousSnapshot` | no | Paste `OUTPUT.snapshot` from an earlier run. |
 | `stateScope` | no | Snapshot scope for local / non-task runs. A task ID always wins. |
 | `maxAds` / `maxUniqueUrls` / `maxRequests` / `maxShopifyProducts` / `timeoutSeconds` / `confirmFailures` | no | Lower the hard caps (cannot raise them). |
+| `maxConcurrency` / `maxConcurrencyPerHost` / `rateLimitMs` | no | Control parallel checks. Defaults: 10 global, 2 per host, 400 ms between starts on the same host. Cannot exceed 20 / 2 / 10,000 ms, and `rateLimitMs` cannot go below 200. |
 
 ## Output
 **Dataset:** one row per unique destination. Main fields:
@@ -153,16 +154,19 @@ A unique URL is never charged for both `destination-resolved` and a link-check e
 **Key-value store `OUTPUT`:** run summary with charge counts, `impactedAdIds` for confirmed failures, and `snapshot` for the next run.
 
 ## Limits
-| Cap | Maximum |
+| Cap | Maximum (input may only lower these) |
 |---|---|
-| Ads per run | 25 |
-| Unique destination URLs | 10 |
+| Ads per run | 10,000 |
+| Unique destination URLs | 5,000 |
 | Shopify products | 3 |
-| HTTP requests (robots, landing, Shopify, redirects, one retry) | 40 |
-| Run time | 90 seconds |
-| Memory | 256 MB |
+| HTTP requests (robots, landing, Shopify, redirects, one retry) | 20,000 |
+| `timeoutSeconds` | 3,600 seconds, always clamped inside the Actor run timeout minus 15 seconds |
+| Default `timeoutSeconds` | 90 seconds (Store example). Raise this and the Actor run timeout together for bulk jobs |
+| Memory | Default 256 MB; use 1024 MB for `renderMode: browser` |
+| Concurrency | 10 destination checks at once by default, maximum 20 |
+| Per-host concurrency | 2 in-flight requests, and at least 400 ms (minimum 200 ms) between starts on the same host |
 
-Inputs over a cap stop **before** any request and nothing is charged. One request per host per second. Proxies and notifications are refused.
+Inputs over a cap stop **before** any request and nothing is charged. Results are written as each URL is classified, so a timeout or migration does not leave an empty dataset. After an Apify migration the same run resumes and skips URLs already written. Leave at least 8 seconds of flush margin inside the run timeout so leftover URLs are recorded as `timeout` rows. A practical HTTP starting point is about 1 second per unique URL divided by concurrency, plus waiting time when many URLs share a host. Example: 2,000 links across a few hosts often need a 15-20 minute run timeout. Browser mode needs several seconds per URL. Proxies and notifications are refused.
 
 ## How it works / read-only & ToS notes
 - Landing checks are plain HTTPS GETs. Redirects are followed with the same SSRF and public-host rules on every hop.

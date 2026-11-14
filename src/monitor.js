@@ -13,6 +13,7 @@ import {
     CHARGE_LINK_BROWSER,
     CHARGE_SHOPIFY,
     HARD_LIMITS,
+    PROGRESS_KEY_PREFIX,
     RULE_VERSION,
     SOURCE_LANDING,
     SOURCE_SHOPIFY,
@@ -64,16 +65,34 @@ export function resolveLimits(input) {
         maxShopifyProducts: HARD_LIMITS.maxShopifyProducts,
         timeoutSeconds: HARD_LIMITS.timeoutSeconds,
         confirmFailures: HARD_LIMITS.confirmFailures,
+        maxConcurrency: HARD_LIMITS.defaultConcurrency,
+        maxConcurrencyPerHost: HARD_LIMITS.defaultConcurrencyPerHost,
+        rateLimitMs: HARD_LIMITS.rateLimitMs,
+    };
+    const caps = {
+        maxAds: HARD_LIMITS.maxAds,
+        maxUniqueUrls: HARD_LIMITS.maxUniqueUrls,
+        maxRequests: HARD_LIMITS.maxRequests,
+        maxShopifyProducts: HARD_LIMITS.maxShopifyProducts,
+        timeoutSeconds: HARD_LIMITS.timeoutSeconds,
+        confirmFailures: HARD_LIMITS.confirmFailures,
+        maxConcurrency: HARD_LIMITS.maxConcurrency,
+        maxConcurrencyPerHost: HARD_LIMITS.maxConcurrencyPerHost,
+        rateLimitMs: HARD_LIMITS.maxRateLimitMs,
+    };
+    const mins = {
+        timeoutSeconds: HARD_LIMITS.minTimeoutSeconds,
+        rateLimitMs: HARD_LIMITS.minRateLimitMs,
     };
     for (const key of Object.keys(limits)) {
         if (input?.[key] === undefined || input?.[key] === null) continue;
         const value = input[key];
-        const min = key === 'timeoutSeconds' ? HARD_LIMITS.minTimeoutSeconds : 1;
+        const min = mins[key] ?? 1;
         if (typeof value !== 'number' || !Number.isInteger(value) || value < min) {
             throw new FatalInputError(`${key} must be an integer of at least ${min}`);
         }
-        if (value > HARD_LIMITS[key]) {
-            throw new FatalInputError(`${key} cannot exceed ${HARD_LIMITS[key]}`);
+        if (value > caps[key]) {
+            throw new FatalInputError(`${key} cannot exceed ${caps[key]}`);
         }
         limits[key] = value;
     }
@@ -303,29 +322,41 @@ export async function runMonitor(input, deps) {
         budget,
         deadlineMs,
         allow,
-        rateLimitMs: HARD_LIMITS.rateLimitMs,
+        rateLimitMs: limits.rateLimitMs,
+        perHostConcurrency: limits.maxConcurrencyPerHost,
         maxRetries: HARD_LIMITS.maxRetries,
         maxRedirects: HARD_LIMITS.maxRedirects,
         followClientRedirects: affiliate.followClientRedirects,
     });
 
+    const robotsInflight = new Map();
     async function ensureRobots(hostname) {
         if (!affiliate.respectRobots) {
             const skip = { rules: [], crawlDelayMs: null, loaded: true };
             robotsCache.set(hostname, skip);
             return skip;
         }
-        let robots = robotsCache.get(hostname);
-        if (robots?.loaded) return robots;
-        const result = await fetcher.fetch(`https://${hostname}/robots.txt`);
-        if (!result.received || result.status !== 200) {
-            robots = { rules: [], crawlDelayMs: null, loaded: true };
-        } else {
-            const parsed = parseRobots(result.body);
-            robots = { ...parsed, loaded: true };
+        const loaded = robotsCache.get(hostname);
+        if (loaded?.loaded) return loaded;
+        if (robotsInflight.has(hostname)) return robotsInflight.get(hostname);
+        const pending = (async () => {
+            const result = await fetcher.fetch(`https://${hostname}/robots.txt`);
+            let robots;
+            if (!result.received || result.status !== 200) {
+                robots = { rules: [], crawlDelayMs: null, loaded: true };
+            } else {
+                const parsed = parseRobots(result.body);
+                robots = { ...parsed, loaded: true };
+            }
+            robotsCache.set(hostname, robots);
+            return robots;
+        })();
+        robotsInflight.set(hostname, pending);
+        try {
+            return await pending;
+        } finally {
+            robotsInflight.delete(hostname);
         }
-        robotsCache.set(hostname, robots);
-        return robots;
     }
 
     const history = await loadSnapshotHistory(deps.store, {
@@ -343,7 +374,6 @@ export async function runMonitor(input, deps) {
         scope: scopeInfo.scope,
     });
 
-    const rows = [];
     const snapshotDestinations = {};
     const shopifyDone = new Map();
     const affiliateLinks = {};
@@ -355,27 +385,179 @@ export async function runMonitor(input, deps) {
     const affilKey = affiliateSnapshotKey(hash);
     const previousAffil = deps.affiliateStore ? await deps.affiliateStore.get(affilKey) : null;
 
-    const flushMarginMs = 8000;
-    for (let groupIndex = 0; groupIndex < normalized.groups.length; groupIndex += 1) {
-        const group = normalized.groups[groupIndex];
-        if (deps.now() + flushMarginMs > deadlineMs && groupIndex < normalized.groups.length) {
-            const remaining = normalized.groups.slice(groupIndex);
-            for (const leftover of remaining) {
-                const classified = classifyLanding({
-                    received: false,
-                    reason: 'timeout',
-                    blocked: false,
-                    status: null,
-                    body: '',
-                    finalUrl: leftover.destinationUrl,
-                    expectedDomain: leftover.expectedDomain,
-                    requiredText: leftover.requiredText,
-                    forbiddenText: leftover.forbiddenText,
-                    redirectChain: [],
-                });
-                await pushResult(leftover, classified, null, history.folded.get(leftover.key), []);
+    const progressStore = deps.progressStore || deps.store || null;
+    const progressKey = `${PROGRESS_KEY_PREFIX}${deps.runId || 'local'}`;
+    const priorProgress = progressStore ? await progressStore.get(progressKey) : null;
+    const completedKeys = new Set(
+        priorProgress
+            && priorProgress.runId === deps.runId
+            && priorProgress.inputHash === hash
+            && Array.isArray(priorProgress.completedKeys)
+            ? priorProgress.completedKeys
+            : [],
+    );
+    const resumedCount = completedKeys.size;
+
+    const finalRows = [];
+    let persistChain = Promise.resolve();
+    function serialize(fn) {
+        const run = persistChain.then(fn, fn);
+        persistChain = run.then(() => {}, () => {});
+        return run;
+    }
+
+    async function saveProgress() {
+        if (!progressStore) return;
+        await progressStore.set(progressKey, {
+            runId: deps.runId,
+            inputHash: hash,
+            completedKeys: [...completedKeys],
+            updatedAt: new Date(deps.now()).toISOString(),
+        });
+    }
+
+    if (typeof deps.registerProgressSaver === 'function') {
+        deps.registerProgressSaver(saveProgress);
+    }
+
+    const flushMarginMs = HARD_LIMITS.flushMarginMs;
+    function budgetExpired() {
+        return deps.now() + flushMarginMs > deadlineMs;
+    }
+
+    async function persistRow(group, classified, shopifyClassified, redirectChain = [], tracking = null) {
+        const observedAt = new Date(deps.now()).toISOString();
+        const observation = {
+            destinationStatus: classified.destinationStatus,
+            event: classified.event,
+            contentHash: classified.contentHash,
+            finalUrl: classified.finalUrl,
+            observedAt,
+            shopifyAvailability: shopifyClassified?.availability ?? null,
+        };
+        const struck = applyTwoStrike({
+            previous: history.folded.get(group.key),
+            observation,
+            confirmFailures: limits.confirmFailures,
+        });
+
+        snapshotDestinations[group.key] = {
+            kind: isUnknownStatus(classified.destinationStatus) ? 'unknown' : 'observation',
+            destinationStatus: classified.destinationStatus,
+            contentHash: classified.contentHash,
+            finalUrl: classified.finalUrl,
+            observedAt,
+            shopifyAvailability: shopifyClassified?.availability ?? null,
+            observedAvailable: shopifyClassified?.observedAvailable,
+        };
+
+        const rowBase = {
+            destinationUrl: group.destinationUrl,
+            finalUrl: classified.finalUrl,
+            destinationStatus: classified.destinationStatus,
+            previousDestinationStatus: struck.previousDestinationStatus,
+            event: classified.event,
+            reason: classified.reason,
+            expectedDomain: group.expectedDomain,
+            expectedDomainOk: classified.expectedDomainOk,
+            requiredTextOk: classified.requiredTextOk,
+            forbiddenTextOk: classified.forbiddenTextOk,
+            contentHash: classified.contentHash,
+            httpStatus: classified.httpStatus,
+            consecutiveFailures: struck.consecutiveFailures,
+            confirmedFailure: struck.confirmedFailure,
+            confirmedOk: struck.confirmedOk,
+            impactedTransition: struck.impactedTransition,
+            baselinePreserved: struck.baselinePreserved,
+            adIds: group.ads.map((a) => a.adId),
+            ads: group.ads,
+            shopifyAvailability: shopifyClassified?.availability ?? null,
+            previousShopifyAvailability: history.folded.get(group.key)?.shopifyAvailability ?? null,
+            shopifyEvent: shopifyClassified?.event ?? null,
+            shopifyHttpStatus: shopifyClassified?.httpStatus ?? null,
+            shopifyVariantTitle: shopifyClassified?.variantTitle ?? null,
+            shopifyPriceMinor: shopifyClassified?.priceMinor ?? null,
+            confirmedShopifyFailure: struck.confirmedShopifyFailure,
+            shopifyTransition: struck.shopifyTransition,
+            shopifyProductUrl: group.shopify?.product.productUrl ?? null,
+            shopifyVariantId: group.shopify?.variantId ?? null,
+            sourceLanding: SOURCE_LANDING,
+            sourceShopify: group.shopify ? SOURCE_SHOPIFY : null,
+            ruleVersion: RULE_VERSION,
+            stateScope: scopeInfo.scope,
+            checkedAt: observedAt,
+            requestsUsed: budget.used,
+            requestLimit: budget.limit,
+            renderMode: affiliate.renderMode,
+            redirectChain: redirectChain,
+            trackingStatus: tracking?.trackingStatus ?? 'not_configured',
+            trackingIssues: tracking?.issues ?? [],
+            changeAlerts: [],
+            inputHash: hash,
+            promise: 'Detect broken affiliate redirects and unexpected tracking changes.',
+            chargeLandingEvent: null,
+            chargedDestination: false,
+            chargedShopify: false,
+            chargeDestinationReason: 'not_billable',
+            chargeShopifyReason: 'not_billable',
+        };
+
+        await serialize(async () => {
+            if (classified.billable) {
+                const eventName = landingChargeEvent(affiliate, deps.configuredChargeEvents);
+                const charge = await charger.charge(eventName, group.key);
+                rowBase.chargeLandingEvent = eventName;
+                rowBase.chargedDestination = charge.charged;
+                rowBase.chargeDestinationReason = charge.reason;
+                if (charge.charged) {
+                    if (eventName === CHARGE_LINK_BROWSER) linksBrowserCharged += 1;
+                    else if (eventName === CHARGE_LINK) linksCharged += 1;
+                    else destinationsCharged += 1;
+                }
             }
-            break;
+            if (shopifyClassified?.billable) {
+                const charge = await charger.charge(CHARGE_SHOPIFY, group.shopify.productKey);
+                rowBase.chargedShopify = charge.charged;
+                rowBase.chargeShopifyReason = charge.reason;
+                if (charge.charged) shopifyCharged += 1;
+            }
+            const record = linkSnapshotRecord(rowBase);
+            affiliateLinks[group.key] = record;
+            rowBase.changeAlerts = compareAffiliateSnapshots(
+                previousAffil && previousAffil.links && previousAffil.links[group.key]
+                    ? { links: { [group.key]: previousAffil.links[group.key] } }
+                    : null,
+                { [group.key]: record },
+            );
+            finalRows.push(rowBase);
+            completedKeys.add(group.key);
+            if (typeof deps.onRow === 'function') {
+                await deps.onRow(rowBase);
+            }
+            await saveProgress();
+        });
+        return rowBase;
+    }
+
+    function timeoutClassification(group, reason = 'timeout') {
+        return classifyLanding({
+            received: false,
+            reason,
+            blocked: false,
+            status: null,
+            body: '',
+            finalUrl: group.destinationUrl,
+            expectedDomain: group.expectedDomain,
+            requiredText: group.requiredText,
+            forbiddenText: group.forbiddenText,
+            redirectChain: [],
+        });
+    }
+
+    async function processGroup(group) {
+        if (budgetExpired()) {
+            await persistRow(group, timeoutClassification(group), null, []);
+            return;
         }
         await ensureRobots(group.hostname);
         const robots = robotsCache.get(group.hostname);
@@ -391,8 +573,8 @@ export async function runMonitor(input, deps) {
                 requiredText: group.requiredText,
                 forbiddenText: group.forbiddenText,
             });
-            await pushResult(group, classified, null, history.folded.get(group.key), []);
-            continue;
+            await persistRow(group, classified, null, []);
+            return;
         }
 
         let landingResult;
@@ -426,144 +608,54 @@ export async function runMonitor(input, deps) {
         if (enableShopifyChecks && group.shopify) {
             const pk = group.shopify.productKey;
             if (shopifyDone.has(pk)) {
-                shopifyClassified = shopifyDone.get(pk);
+                shopifyClassified = await shopifyDone.get(pk);
             } else {
-                const productUrl = `https://${group.shopify.product.hostname}${group.shopify.product.productPath}`;
-                const shopifyFetch = await fetcher.fetch(productUrl);
-                shopifyClassified = classifyShopifyVariant({
-                    document: shopifyFetch.body,
-                    variantId: group.shopify.variantId,
-                    received: shopifyFetch.received,
-                    reason: shopifyFetch.reason,
-                    blocked: shopifyFetch.blocked,
-                    status: shopifyFetch.status,
-                });
-                shopifyDone.set(pk, shopifyClassified);
+                const pendingShopify = (async () => {
+                    const productUrl = `https://${group.shopify.product.hostname}${group.shopify.product.productPath}`;
+                    const shopifyFetch = await fetcher.fetch(productUrl);
+                    return classifyShopifyVariant({
+                        document: shopifyFetch.body,
+                        variantId: group.shopify.variantId,
+                        received: shopifyFetch.received,
+                        reason: shopifyFetch.reason,
+                        blocked: shopifyFetch.blocked,
+                        status: shopifyFetch.status,
+                    });
+                })();
+                shopifyDone.set(pk, pendingShopify);
+                shopifyClassified = await pendingShopify;
             }
         }
 
-        await pushResult(group, classified, shopifyClassified, history.folded.get(group.key), redirectChain, tracking);
+        await persistRow(group, classified, shopifyClassified, redirectChain, tracking);
     }
 
-    async function pushResult(group, classified, shopifyClassified, previous, redirectChain = [], tracking = null) {
-        const observedAt = new Date(deps.now()).toISOString();
-        const observation = {
-            destinationStatus: classified.destinationStatus,
-            event: classified.event,
-            contentHash: classified.contentHash,
-            finalUrl: classified.finalUrl,
-            observedAt,
-            shopifyAvailability: shopifyClassified?.availability ?? null,
-        };
-        const struck = applyTwoStrike({
-            previous,
-            observation,
-            confirmFailures: limits.confirmFailures,
-        });
+    const pending = normalized.groups.filter((group) => !completedKeys.has(group.key));
+    const queue = pending.slice();
+    let stopping = false;
 
-        snapshotDestinations[group.key] = {
-            kind: isUnknownStatus(classified.destinationStatus) ? 'unknown' : 'observation',
-            destinationStatus: classified.destinationStatus,
-            contentHash: classified.contentHash,
-            finalUrl: classified.finalUrl,
-            observedAt,
-            shopifyAvailability: shopifyClassified?.availability ?? null,
-            observedAvailable: shopifyClassified?.observedAvailable,
-        };
-
-        // billing
-        let destCharge = { charged: false, reason: 'not_billable', eventName: CHARGE_DESTINATION };
-        let shopCharge = { charged: false, reason: 'not_billable', eventName: CHARGE_SHOPIFY };
-
-        const rowBase = {
-            destinationUrl: group.destinationUrl,
-            finalUrl: classified.finalUrl,
-            destinationStatus: classified.destinationStatus,
-            previousDestinationStatus: struck.previousDestinationStatus,
-            event: classified.event,
-            reason: classified.reason,
-            expectedDomain: group.expectedDomain,
-            expectedDomainOk: classified.expectedDomainOk,
-            requiredTextOk: classified.requiredTextOk,
-            forbiddenTextOk: classified.forbiddenTextOk,
-            contentHash: classified.contentHash,
-            httpStatus: classified.httpStatus,
-            consecutiveFailures: struck.consecutiveFailures,
-            confirmedFailure: struck.confirmedFailure,
-            confirmedOk: struck.confirmedOk,
-            impactedTransition: struck.impactedTransition,
-            baselinePreserved: struck.baselinePreserved,
-            adIds: group.ads.map((a) => a.adId),
-            ads: group.ads,
-            shopifyAvailability: shopifyClassified?.availability ?? null,
-            previousShopifyAvailability: previous?.shopifyAvailability ?? null,
-            shopifyEvent: shopifyClassified?.event ?? null,
-            shopifyHttpStatus: shopifyClassified?.httpStatus ?? null,
-            shopifyVariantTitle: shopifyClassified?.variantTitle ?? null,
-            shopifyPriceMinor: shopifyClassified?.priceMinor ?? null,
-            confirmedShopifyFailure: struck.confirmedShopifyFailure,
-            shopifyTransition: struck.shopifyTransition,
-            shopifyProductUrl: group.shopify?.product.productUrl ?? null,
-            shopifyVariantId: group.shopify?.variantId ?? null,
-            sourceLanding: SOURCE_LANDING,
-            sourceShopify: group.shopify ? SOURCE_SHOPIFY : null,
-            ruleVersion: RULE_VERSION,
-            stateScope: scopeInfo.scope,
-            checkedAt: observedAt,
-            requestsUsed: budget.used,
-            requestLimit: budget.limit,
-            renderMode: affiliate.renderMode,
-            redirectChain: redirectChain,
-            trackingStatus: tracking?.trackingStatus ?? 'not_configured',
-            trackingIssues: tracking?.issues ?? [],
-            changeAlerts: [],
-            inputHash: hash,
-            promise: 'Detect broken affiliate redirects and unexpected tracking changes.',
-            chargeLandingEvent: null,
-            chargedDestination: false,
-            chargedShopify: false,
-            chargeDestinationReason: 'not_billable',
-            chargeShopifyReason: 'not_billable',
-        };
-
-        // deferred charge — applied after we create the async wrapper
-        rows.push({ rowBase, classified, shopifyClassified, group });
-    }
-
-    // Apply charges (async) for billable rows, then persist each row immediately.
-    const finalRows = [];
-    for (const pending of rows) {
-        const { rowBase, classified, shopifyClassified, group } = pending;
-        if (classified.billable) {
-            const eventName = landingChargeEvent(affiliate, deps.configuredChargeEvents);
-            const charge = await charger.charge(eventName, group.key);
-            rowBase.chargeLandingEvent = eventName;
-            rowBase.chargedDestination = charge.charged;
-            rowBase.chargeDestinationReason = charge.reason;
-            if (charge.charged) {
-                if (eventName === CHARGE_LINK_BROWSER) linksBrowserCharged += 1;
-                else if (eventName === CHARGE_LINK) linksCharged += 1;
-                else destinationsCharged += 1;
+    async function worker() {
+        while (!stopping) {
+            if (budgetExpired()) {
+                stopping = true;
+                break;
             }
+            const group = queue.shift();
+            if (!group) return;
+            await processGroup(group);
         }
-        if (shopifyClassified?.billable) {
-            const charge = await charger.charge(CHARGE_SHOPIFY, group.shopify.productKey);
-            rowBase.chargedShopify = charge.charged;
-            rowBase.chargeShopifyReason = charge.reason;
-            if (charge.charged) shopifyCharged += 1;
-        }
-        const record = linkSnapshotRecord(rowBase);
-        affiliateLinks[group.key] = record;
-        rowBase.changeAlerts = compareAffiliateSnapshots(
-            previousAffil && previousAffil.links && previousAffil.links[group.key]
-                ? { links: { [group.key]: previousAffil.links[group.key] } }
-                : null,
-            { [group.key]: record },
-        );
-        finalRows.push(rowBase);
-        if (typeof deps.onRow === 'function') {
-            await deps.onRow(rowBase);
-        }
+    }
+
+    const workerCount = Math.max(1, Math.min(limits.maxConcurrency, queue.length || 1));
+    if (queue.length > 0) {
+        await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    }
+    const leftovers = queue.splice(0, queue.length);
+    for (const leftover of leftovers) {
+        await persistRow(leftover, timeoutClassification(leftover), null, []);
+    }
+    if (progressStore && completedKeys.size >= normalized.groups.length) {
+        await progressStore.set(progressKey, null);
     }
 
     const completedAt = new Date(deps.now()).toISOString();
@@ -604,6 +696,10 @@ export async function runMonitor(input, deps) {
         completedAt,
         ads: normalized.adCount,
         uniqueUrls: normalized.uniqueUrls,
+        resumedCount,
+        maxConcurrency: limits.maxConcurrency,
+        maxConcurrencyPerHost: limits.maxConcurrencyPerHost,
+        rateLimitMs: limits.rateLimitMs,
         shopifyProducts: normalized.shopifyProductCount,
         destinationsCharged,
         shopifyCharged,

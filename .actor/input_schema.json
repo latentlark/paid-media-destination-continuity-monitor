@@ -1,6 +1,6 @@
 {
   "title": "Ad and affiliate link watchlist",
-  "description": "Destinations to check for landing health, optional Shopify buyability, and optional affiliate redirect and tracking-parameter QA. Provide ads and/or links. Hard caps: 25 ads, 15 unique URLs, 80 requests, 3 Shopify products, 180 seconds. Caps cannot be raised. The Actor detects broken affiliate redirects and unexpected tracking changes. It does not claim commission attribution.",
+  "description": "Destinations to check for landing health, optional Shopify buyability, and optional affiliate redirect and tracking-parameter QA. Provide ads and/or links. Hard caps: 10,000 ads, 5,000 unique URLs, 20,000 requests, 3 Shopify products, 3,600 seconds. Input may lower these caps, not raise them. Default timeout is 90 seconds to match the Store example; raise timeoutSeconds and the Actor run timeout together for bulk jobs, and leave at least 8 seconds of flush margin. The Actor detects broken affiliate redirects and unexpected tracking changes. It does not claim commission attribution.",
   "type": "object",
   "schemaVersion": 1,
   "properties": {
@@ -183,25 +183,25 @@
       "title": "Ad cap",
       "type": "integer",
       "minimum": 1,
-      "maximum": 25,
-      "default": 25,
-      "description": "Optional ad count cap of 25 or less."
+      "maximum": 10000,
+      "default": 10000,
+      "description": "Optional ad count cap of 10,000 or less."
     },
     "maxUniqueUrls": {
       "title": "Unique URL cap",
       "type": "integer",
       "minimum": 1,
-      "maximum": 15,
-      "default": 15,
-      "description": "Optional unique destination URL cap of 15 or less."
+      "maximum": 5000,
+      "default": 5000,
+      "description": "Optional unique destination URL cap of 5,000 or less."
     },
     "maxRequests": {
       "title": "Request cap",
       "type": "integer",
       "minimum": 1,
-      "maximum": 80,
-      "default": 80,
-      "description": "Optional HTTP request budget of 80 or less (robots, redirects, retries included)."
+      "maximum": 20000,
+      "default": 20000,
+      "description": "Optional HTTP request budget of 20,000 or less (robots, redirects, retries included)."
     },
     "maxShopifyProducts": {
       "title": "Shopify product cap",
@@ -215,9 +215,33 @@
       "title": "Timeout seconds",
       "type": "integer",
       "minimum": 5,
-      "maximum": 180,
+      "maximum": 3600,
       "default": 90,
-      "description": "Wall-clock budget for this run. Cannot exceed 180. The Store example uses 90 and should finish in well under 2 minutes."
+      "description": "Wall-clock budget for this run, clamped to the remaining Actor run timeout minus 15 seconds. Default is 90 seconds for the Store example. For bulk HTTP checks, set this and the Actor run timeout together. Leave at least 8 seconds of flush margin so leftover URLs are written as timeout rows. A practical starting point is about 1 second per unique URL divided by concurrency, then add waiting time when many URLs share a host (requests to the same host are spaced and limited to 2 in flight by default). Example: 2,000 links across a few hosts often need a 15-20 minute run timeout. Browser mode needs several seconds per URL and 1024 MB."
+    },
+    "maxConcurrency": {
+      "title": "Max concurrent URLs",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20,
+      "default": 10,
+      "description": "How many destination checks may run at once. Default 10, maximum 20. Per-host limits still apply."
+    },
+    "maxConcurrencyPerHost": {
+      "title": "Max concurrent requests per host",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2,
+      "default": 2,
+      "description": "In-flight HTTP requests allowed against one hostname. Default and maximum are 2 so bulk runs do not hammer a single host."
+    },
+    "rateLimitMs": {
+      "title": "Per-host spacing (ms)",
+      "type": "integer",
+      "minimum": 200,
+      "maximum": 10000,
+      "default": 400,
+      "description": "Minimum time between starting requests to the same hostname, in milliseconds. Default 400, minimum 200, maximum 10,000. Use a higher value to be gentler on one host."
     },
     "confirmFailures": {
       "title": "Confirm failures (strikes)",
