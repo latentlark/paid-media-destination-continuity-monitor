@@ -9,7 +9,7 @@
       "type": "array",
       "description": "Each item is one ad destination URL. Multiple ads may share a URL; results fan out every linked adId. The prefill checks example.com plus Shopify's public Dawn demo product (Thelma sandal / Black 35). You may also pass links instead of, or in addition to, ads.",
       "minItems": 1,
-      "maxItems": 25,
+      "maxItems": 10000,
       "editor": "schemaBased",
       "prefill": [
         {
@@ -256,7 +256,7 @@
       "type": "array",
       "description": "Optional alternative to ads. Each item needs a url or destinationUrl. Same fields as ads, plus optional per-link requiredParams. Used with ads, or on its own.",
       "minItems": 1,
-      "maxItems": 25,
+      "maxItems": 10000,
       "editor": "schemaBased",
       "items": {
         "type": "object",
