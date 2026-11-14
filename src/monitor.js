@@ -406,7 +406,10 @@ export async function runMonitor(input, deps) {
         return run;
     }
 
-    async function saveProgress() {
+    let progressUnsynced = 0;
+    async function saveProgress(force = false) {
+        if (!force && progressUnsynced < 25) return;
+        if (typeof charger.flush === 'function') await charger.flush();
         if (!progressStore) return;
         await progressStore.set(progressKey, {
             runId: deps.runId,
@@ -414,10 +417,11 @@ export async function runMonitor(input, deps) {
             completedKeys: [...completedKeys],
             updatedAt: new Date(deps.now()).toISOString(),
         });
+        progressUnsynced = 0;
     }
 
     if (typeof deps.registerProgressSaver === 'function') {
-        deps.registerProgressSaver(saveProgress);
+        deps.registerProgressSaver(() => saveProgress(true));
     }
 
     const flushMarginMs = HARD_LIMITS.flushMarginMs;
@@ -531,10 +535,11 @@ export async function runMonitor(input, deps) {
             );
             finalRows.push(rowBase);
             completedKeys.add(group.key);
+            progressUnsynced += 1;
             if (typeof deps.onRow === 'function') {
                 await deps.onRow(rowBase);
             }
-            await saveProgress();
+            await saveProgress(false);
         });
         return rowBase;
     }
@@ -654,6 +659,7 @@ export async function runMonitor(input, deps) {
     for (const leftover of leftovers) {
         await persistRow(leftover, timeoutClassification(leftover), null, []);
     }
+    await saveProgress(true);
     if (progressStore && completedKeys.size >= normalized.groups.length) {
         await progressStore.set(progressKey, null);
     }
